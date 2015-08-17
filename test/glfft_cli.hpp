@@ -33,7 +33,7 @@ namespace GLFFT
             bool throw_on_fail = false;
             double min_snr_fp16 = 50.0;
             double min_snr_fp32 = 100.0;
-            double epsilon_fp16 = 1e-4;
+            double epsilon_fp16 = 1e-3;
             double epsilon_fp32 = 1e-6;
         };
 

@@ -174,26 +174,22 @@ static void run_benchmark(const BenchArguments &args)
     if (args.input_texture)
     {
         GLenum internal_format = 0;
-        GLenum format = 0;
 
         switch (args.type)
         {
             case ComplexToComplexDual:
                 internal_format = GL_RGBA32F;
-                format = GL_RGBA;
                 input_target = Image;
                 break;
 
             case ComplexToComplex:
             case ComplexToReal:
                 internal_format = GL_RG32F;
-                format = GL_RG;
                 input_target = Image;
                 break;
 
             case RealToComplex:
                 internal_format = GL_R32F;
-                format = GL_RED;
                 input_target = ImageReal;
                 break;
         }
@@ -211,26 +207,22 @@ static void run_benchmark(const BenchArguments &args)
     if (args.output_texture)
     {
         GLenum internal_format = 0;
-        GLenum format = 0;
 
         switch (args.type)
         {
             case ComplexToComplexDual:
                 internal_format = GL_RGBA16F;
-                format = GL_RGBA;
                 output_target = Image;
                 break;
 
             case ComplexToComplex:
             case RealToComplex:
                 internal_format = GL_RG16F;
-                format = GL_RG;
                 output_target = Image;
                 break;
 
             case ComplexToReal:
                 internal_format = GL_R32F;
-                format = GL_RED;
                 output_target = ImageReal;
                 break;
         }

@@ -16,14 +16,14 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#include "glfft_api_headers.hpp"
+#include "glfft_interface.hpp"
 #include "glfft_context.hpp"
 
 #ifdef GLFFT_GL_DEBUG
 static void APIENTRY gl_debug_cb(GLenum, GLenum, GLuint, GLenum, GLsizei,
         const GLchar *message, void*)
 {
-    printf("GLDEBUG: %s.\n", message);
+    glfft_log("GLDEBUG: %s.\n", message);
 }
 #endif
 

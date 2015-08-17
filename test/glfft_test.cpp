@@ -23,20 +23,13 @@
 #include <random>
 #include <complex>
 #include <functional>
-#include <mufft/fft.h>
+#include "fft.h"
 #include <stdlib.h>
+#include <cmath>
 
 using namespace std;
 using namespace GLFFT;
 using namespace GLFFT::Internal;
-
-#define GLM_SWIZZLE
-#define GLM_FORCE_RADIANS
-#include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
-#include <glm/gtc/type_ptr.hpp>
-#include <glm/gtc/constants.hpp>
-using namespace glm;
 
 static normal_distribution<float> normal_dist{0.0f, 1.0f};
 static default_random_engine engine;
@@ -271,13 +264,13 @@ static bool validate_surface(const float *a, const float *b, unsigned Nx, unsign
     {
         for (unsigned x = 0; x < Nx; x++)
         {
-            float diff = glm::abs(a[x] - b[x]);
+            float diff = fabs(a[x] - b[x]);
             if (!(diff < epsilon))
             {
                 valid = false;
             }
 
-            max_diff = glm::max(diff, max_diff);
+            max_diff = max(diff, max_diff);
 
             signal += b[x] * b[x];
             noise += diff * diff;
@@ -364,6 +357,111 @@ static const char *type_to_str(Type type)
     }
 }
 
+// Based on GLM implementation.
+static uint16_t fp32_to_fp16(float v_)
+{
+    union
+    {
+        float f;
+        uint32_t u;
+    } u;
+
+    u.f = v_;
+    uint32_t v = u.u;
+
+    int s = (v >> 16) & 0x00008000;
+    int e = ((v >> 23) & 0x000000ff) - (127 - 15);
+    int m = v & 0x007fffff;
+
+    if (e <= 0)
+    {
+        if (e < -10)
+        {
+            return s;
+        }
+
+        m = (m | 0x00800000) >> (1 - e);
+        if (m & 0x00001000)
+        {
+            m += 0x00002000;
+        }
+
+        return s | (m >> 13);
+    }
+    else if (e == 0xff - (127 - 15))
+    {
+        if (m == 0)
+        {
+            return s | 0x7c00;
+        }
+        else
+        {
+            m >>= 13;
+            return s | 0x7c00 | m | (m == 0);
+        }
+    }
+    else
+    {
+        if (m & 0x00001000)
+        {
+            m += 0x00002000;
+            if (m & 0x00800000)
+            {
+                m = 0;
+                e += 1;
+            }
+        }
+
+        if (e > 30)
+        {
+            return s | 0x7c00;
+        }
+
+        return s | (e << 10) | (m >> 13);
+    }
+}
+
+static inline uint32_t fp32_to_fp16(float x, float y)
+{
+    return fp32_to_fp16(x) | (fp32_to_fp16(y) << 16);
+}
+
+static inline float fp16_to_fp32(uint16_t v)
+{
+    float sign = v & 0x8000 ? -1.0f : 1.0f;
+    int m = v & 0x3ff;
+    int e = (v >> 10) & 0x1f;
+
+    // Straight out of GLES spec.
+    if (e == 0 && m == 0)
+    {
+        return sign * 0.0f;
+    }
+    else if (e == 0 && m != 0)
+    {
+        return sign * exp2(-14.0f) * (m / 1024.0f);
+    }
+    else if (e > 0 && e < 31)
+    {
+        return sign * exp2(e - 15.0f) * (1.0f + m / 1024.0f);
+    }
+    else if (e == 31)
+    {
+        return sign * numeric_limits<float>::infinity();
+    }
+    else
+    {
+        return numeric_limits<float>::quiet_NaN();
+    }
+}
+
+static inline pair<float, float> fp16_to_fp32(uint32_t v)
+{
+    uint16_t lower = v & 0xffff;
+    uint16_t upper = (v >> 16) & 0xffff;
+    return make_pair(fp16_to_fp32(lower), fp16_to_fp32(upper));
+}
+
 static mufft_buffer convert_fp32_fp16(const float *input, unsigned N)
 {
     auto buffer = alloc(N * sizeof(uint16_t));
@@ -371,8 +469,7 @@ static mufft_buffer convert_fp32_fp16(const float *input, unsigned N)
 
     for (unsigned i = 0; i < N; i += 2)
     {
-        vec2 v{input[i + 0], input[i + 1]};
-        ptr[i >> 1] = packHalf2x16(v);
+        ptr[i >> 1] = fp32_to_fp16(input[i + 0], input[i + 1]);
     }
 
     return buffer;
@@ -385,9 +482,9 @@ static mufft_buffer convert_fp16_fp32(const uint32_t *input, unsigned N)
 
     for (unsigned i = 0; i < N; i += 2)
     {
-        vec2 v = unpackHalf2x16(input[i >> 1]);
-        ptr[i + 0] = v.x;
-        ptr[i + 1] = v.y;
+        auto v = fp16_to_fp32(input[i >> 1]);
+        ptr[i + 0] = v.first;
+        ptr[i + 1] = v.second;
     }
 
     return buffer;
@@ -640,7 +737,7 @@ static void test_fp32_fp16_convert()
     {
         float fp32 = static_cast<const float*>(input.get())[i];
         float fp16 = static_cast<const float*>(output.get())[i];
-        float diff = glm::abs(fp16 - fp32);
+        float diff = fabs(fp16 - fp32);
         if (diff > 0.001f)
         {
             throw logic_error("Failed to validate FP32 -> FP16 -> FP32 roundtrip conversion.");
