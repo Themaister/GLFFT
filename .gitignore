@@ -1,0 +1,9 @@
+/glfft_cli
+/tags
+*.o
+*.d
+*.comp.src
+*.swp
+*.inc
+*~
+*.txt
