@@ -747,6 +747,7 @@ static void test_fp32_fp16_convert()
 
 void GLFFT::Internal::run_test_suite(const TestSuiteArguments &args)
 {
+    // Sanity test, should never fail.
     test_fp32_fp16_convert();
 
     FFTOptions options;

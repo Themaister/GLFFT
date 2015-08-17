@@ -61,8 +61,8 @@ OBJDIR := obj
 OBJECTS := $(addprefix $(OBJDIR)/,$(CXX_SOURCES:.cpp=.o)) $(addprefix $(OBJDIR)/,$(C_SOURCES:.c=.o))
 DEPS := $(OBJECTS:.o=.d)
 
-CXXFLAGS += -Wall -Wextra -pedantic -std=gnu++11 $(EXTERNAL_INCLUDE_DIRS)
-CFLAGS += -Wall -Wextra -std=gnu99 $(EXTERNAL_INCLUDE_DIRS)
+CXXFLAGS += -Wall -Wextra -pedantic -std=c++11 $(EXTERNAL_INCLUDE_DIRS)
+CFLAGS += -Wall -Wextra -std=c99 $(EXTERNAL_INCLUDE_DIRS)
 LDFLAGS += $(EXTERNAL_LIB_DIRS)
 
 

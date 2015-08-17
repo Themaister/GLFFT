@@ -52,8 +52,9 @@ FFTStaticWisdom FFTWisdom::get_static_wisdom_from_renderer(const char *renderer)
         res.min_workgroup_size = 64; // Wavefront threads (GCN).
         res.min_workgroup_size_shared = 128;
         res.max_workgroup_size = min(value, 256); // Very unlikely that more than 256 threads will do anything good.
+        // TODO: Find if we can restrict this to 2 or 4 always.
         res.min_vector_size = 2;
-        res.max_vector_size = 2;
+        res.max_vector_size = 4;
         res.shared_banked = FFTStaticWisdom::True;
     }
     else if (strstr(renderer, "Mali"))
