@@ -20,11 +20,6 @@ ifeq ($(PLATFORM),)
 	endif
 endif
 
-ifeq ($(PLATFORM),win)
-	CC = gcc
-	CXX = g++
-endif
-
 ifeq ($(BACKEND), glfw)
 	ifeq ($(PLATFORM),win)
 		LDFLAGS += -Lexternal/lib/win-x64 -lglfw3 -lopengl32 -lgdi32
@@ -36,6 +31,11 @@ ifeq ($(BACKEND), glfw)
 
 	CC = clang
 	CXX = clang++
+endif
+
+ifeq ($(PLATFORM),win)
+	CC = gcc
+	CXX = g++
 endif
 
 ifeq ($(DEBUG_SANITIZE), 1)
