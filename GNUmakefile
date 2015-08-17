@@ -76,7 +76,7 @@ build_fft_inc:
 -include $(DEPS)
 
 muFFT/libmufft.a:
-	$(MAKE) -C muFFT static
+	$(MAKE) -C muFFT static PLATFORM=$(PLATFORM) TOOLCHAIN_PREFIX=$(TOOLCHAIN_PREFIX)
 
 $(TARGET): $(OBJECTS) $(MUFFT_LIB)
 	$(CXX) -o $@ $(OBJECTS) $(LDFLAGS) $(EXTERNAL_LIBS)
@@ -91,5 +91,8 @@ $(OBJDIR)/%.o: %.c
 
 clean:
 	rm -rf $(OBJDIR) $(TARGET)
+	$(MAKE) -C muFFT clean PLATFORM=$(PLATFORM)
+	$(MAKE) -C glsl clean
+	rm -f muFFT/libmufft.a
 
 .PHONY: clean
