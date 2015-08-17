@@ -64,7 +64,7 @@ FFTStaticWisdom FFTWisdom::get_static_wisdom_from_renderer(const char *renderer)
         res.min_workgroup_size_shared = 4;
         res.max_workgroup_size = 64; // Going beyond 64 threads per WG is not a good idea.
         res.min_vector_size = 4;
-        res.max_vector_size = 8;
+        res.max_vector_size = 4;
         res.shared_banked = FFTStaticWisdom::False;
     }
     // TODO: Add more GPUs.
