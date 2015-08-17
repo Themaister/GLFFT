@@ -57,12 +57,14 @@ endif
 
 CXX_SOURCES := $(wildcard *.cpp) $(wildcard test/*.cpp) $(wildcard test/$(BACKEND)/*.cpp)
 C_SOURCES := $(GLSYM)
-OBJECTS := $(CXX_SOURCES:.cpp=.o) $(C_SOURCES:.c=.o)
+OBJDIR := obj
+OBJECTS := $(addprefix $(OBJDIR)/,$(CXX_SOURCES:.cpp=.o)) $(addprefix $(OBJDIR)/,$(C_SOURCES:.c=.o))
 DEPS := $(OBJECTS:.o=.d)
 
 CXXFLAGS += -Wall -Wextra -pedantic -std=gnu++11 $(EXTERNAL_INCLUDE_DIRS)
 CFLAGS += -Wall -Wextra -std=gnu99 $(EXTERNAL_INCLUDE_DIRS)
 LDFLAGS += $(EXTERNAL_LIB_DIRS)
+
 
 all: $(TARGET)
 
@@ -79,13 +81,15 @@ muFFT/libmufft.a:
 $(TARGET): $(OBJECTS) $(MUFFT_LIB)
 	$(CXX) -o $@ $(OBJECTS) $(LDFLAGS) $(EXTERNAL_LIBS)
 
-%.o: %.cpp
+$(OBJDIR)/%.o: %.cpp
+	@mkdir -p $(dir $@)
 	$(CXX) -c -o $@ $< $(CXXFLAGS) -MMD
 
-%.o: %.c
+$(OBJDIR)/%.o: %.c
+	@mkdir -p $(dir $@)
 	$(CC) -c -o $@ $< $(CFLAGS) -MMD
 
 clean:
-	rm -f $(OBJECTS) $(TARGET) $(DEPS)
+	rm -rf $(OBJDIR) $(TARGET)
 
 .PHONY: clean
