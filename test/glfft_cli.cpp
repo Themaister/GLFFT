@@ -291,6 +291,10 @@ static int cli_test(int argc, char *argv[])
     {
         return EXIT_FAILURE;
     }
+    else if (parser.ended_state)
+    {
+        return EXIT_SUCCESS;
+    }
 
     run_test_suite(args);
     return EXIT_SUCCESS;
@@ -363,6 +367,10 @@ static int cli_bench(int argc, char *argv[])
     if (!parser.parse())
     {
         return EXIT_FAILURE;
+    }
+    else if (parser.ended_state)
+    {
+        return EXIT_SUCCESS;
     }
 
     run_benchmark(args);
