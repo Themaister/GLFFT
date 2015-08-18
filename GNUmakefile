@@ -63,7 +63,7 @@ DEPS := $(OBJECTS:.o=.d)
 
 CXXFLAGS += -Wall -Wextra -pedantic -std=c++11 $(EXTERNAL_INCLUDE_DIRS)
 CFLAGS += -Wall -Wextra -std=c99 $(EXTERNAL_INCLUDE_DIRS)
-LDFLAGS += $(EXTERNAL_LIB_DIRS)
+LDFLAGS += $(EXTERNAL_LIB_DIRS) -lm
 
 
 all: $(TARGET)

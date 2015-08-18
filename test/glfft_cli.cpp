@@ -24,6 +24,7 @@
 #include <limits>
 #include <memory>
 #include <utility>
+#include <cmath>
 
 using namespace GLFFT;
 using namespace GLFFT::Internal;
@@ -150,6 +151,56 @@ struct BenchArguments
     bool output_texture = false;
 };
 
+// Rough estimate based on a canonical FFT implementation.
+static double get_estimated_flops(unsigned width, unsigned height, Type type)
+{
+    double flops = width * height * (log2(float(width)) + log2(float(height))) * 5.0;
+
+    switch (type)
+    {
+        case ComplexToComplexDual:
+            flops *= 2.0;
+            break;
+
+        case RealToComplex:
+        case ComplexToReal:
+            flops *= 0.5;
+            break;
+
+        default:
+            break;
+    }
+
+    return flops;
+}
+
+static double get_estimated_bw_per_pass(unsigned width, unsigned height, Type type, bool fp16)
+{
+    double bw = width * height * 4.0 * sizeof(float); // BW for reading the buffer and writing it back.
+
+    switch (type)
+    {
+        case ComplexToComplexDual:
+            bw *= 2.0;
+            break;
+
+        case RealToComplex:
+        case ComplexToReal:
+            bw *= 0.5;
+            break;
+
+        default:
+            break;
+    }
+
+    if (fp16)
+    {
+        bw *= 0.5;
+    }
+
+    return bw;
+}
+
 static void run_benchmark(const BenchArguments &args)
 {
     auto cache = make_shared<ProgramCache>();
@@ -242,10 +293,17 @@ static void run_benchmark(const BenchArguments &args)
 
     FFT fft(args.width, args.height, args.type, args.type == ComplexToReal ? Inverse : Forward, input_target, output_target, cache, options, wisdom);
 
+    double estimated_gflops = 1e-9 * get_estimated_flops(args.width, args.height, args.type);
+    double estimated_bandwidth_gb = 1e-9 * fft.get_num_passes() * get_estimated_bw_per_pass(args.width, args.height, args.type, args.fp16);
+
     glfft_log("Test:\n");
     glfft_log("  %s -> %s\n", input_target == SSBO ? "SSBO" : "Texture", output_target == SSBO ? "SSBO" : "Image");
     glfft_log("  Size: %u x %u %s %s\n", args.width, args.height, args.string_for_type, args.fp16 ? "FP16" : "FP32");
-    glfft_log("  %8.3f ms\n\n", 1000.0 * fft.bench(output_name, input_name, 5, 100, 100, 5.0));
+
+    double dispatch_time = fft.bench(output_name, input_name, 5, 100, 100, 5.0);
+    glfft_log("  %8.3f ms\n", 1000.0 * dispatch_time);
+    glfft_log("  %8.3f GFlop/s (estimated)\n", estimated_gflops / dispatch_time);
+    glfft_log("  %8.3f GB/s global memory bandwidth (estimated)\n", estimated_bandwidth_gb / dispatch_time);
 }
 
 static void cli_help(char *argv[])

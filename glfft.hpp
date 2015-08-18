@@ -48,6 +48,7 @@ class FFT
                 double max_time = std::numeric_limits<double>::max());
 
         double get_cost() const { return cost; }
+        unsigned get_num_passes() const { return passes.size(); }
 
         unsigned get_dimension_x() const { return size_x; }
         unsigned get_dimension_y() const { return size_y; }

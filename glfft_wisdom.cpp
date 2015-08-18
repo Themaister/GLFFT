@@ -40,7 +40,7 @@ FFTStaticWisdom FFTWisdom::get_static_wisdom_from_renderer(const char *renderer)
     {
         glfft_log("Detected GeForce GPU.\n");
         res.min_workgroup_size = 32; // Warp threads.
-        res.min_workgroup_size_shared = 64;
+        res.min_workgroup_size_shared = 32;
         res.max_workgroup_size = min(value, 256); // Very unlikely that more than 256 threads will do anything good.
         res.min_vector_size = 2;
         res.max_vector_size = 2;
