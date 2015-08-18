@@ -20,10 +20,10 @@
 #include "glfft.hpp"
 #include <utility>
 
-#include "rapidjson/reader.h"
-#include "rapidjson/prettywriter.h"
-#include "rapidjson/stringbuffer.h"
-#include "rapidjson/document.h"
+#include "rapidjson/include/rapidjson/reader.h"
+#include "rapidjson/include/rapidjson/prettywriter.h"
+#include "rapidjson/include/rapidjson/stringbuffer.h"
+#include "rapidjson/include/rapidjson/document.h"
 
 using namespace std;
 using namespace GLFFT;

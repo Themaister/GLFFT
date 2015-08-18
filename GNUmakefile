@@ -2,7 +2,7 @@ TARGET := glfft_cli
 
 BACKEND := glfw
 
-EXTERNAL_INCLUDE_DIRS := -ImuFFT -Irapidjson/include -I. -Itest -Itest/$(BACKEND)
+EXTERNAL_INCLUDE_DIRS := -ImuFFT -I. -Itest -Itest/$(BACKEND)
 EXTERNAL_LIB_DIRS := -LmuFFT
 EXTERNAL_LIBS := -lmufft
 MUFFT_LIB := muFFT/libmufft.a
