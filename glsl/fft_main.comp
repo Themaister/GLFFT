@@ -16,6 +16,10 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
+// P is the current accumulated radix factor.
+// First pass in an FFT, P == 1, then P will be pass0.radix, then pass0.radix * pass1.radix, and so on ...
+// Used to compute twiddle factors.
+
 #ifndef FFT_P1
 layout(location = 0) uniform uint uP;
 #endif

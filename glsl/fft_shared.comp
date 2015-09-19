@@ -18,6 +18,12 @@
 
 // Most (all?) desktop GPUs have banked shared memory.
 // We want to avoid bank conflicts as much as possible.
+// If we don't pad the shared memory, threads in the same warp/wavefront will hit the same
+// shared memory banks, and stall as each bank and only process a fixed number of requests per cycle.
+// By padding, we "smear" out the requests to more banks, which greatly improves performance.
+
+// For architectures without banked shared memory,
+// this design makes no sense, so it's a pretty important performance bit to set correctly.
 
 #ifndef FFT_SHARED_BANKED
 #error FFT_SHARED_BANKED must be defined.
@@ -37,6 +43,11 @@ uint get_shared_base(uint fft)
 }
 
 #if FFT_SHARED_BANKED
+
+// Implementations with banked shared memory like to write 32-bit at a time,
+// since that's typically how big transactions each shared memory bank can handle.
+// If we try to write vec4s in one go (which will get split up to 4 writes anyways),
+// we end up with 4-way bank conflicts no matter what we do.
 
 #if defined(FFT_VEC8)
 shared uint tmpx[FFT_SHARED_SIZE * gl_WorkGroupSize.x * gl_WorkGroupSize.y];
@@ -72,6 +83,7 @@ void load_shared(uint offset, out cfloat v)
 #endif
 }
 #else
+// For non-banked architectures, just store and load directly.
 shared cfloat tmp[FFT_SHARED_SIZE * gl_WorkGroupSize.x * gl_WorkGroupSize.y];
 
 void store_shared(uint offset, cfloat v)
@@ -87,6 +99,7 @@ void load_shared(uint offset, out cfloat v)
 
 void store_shared(cfloat a, cfloat b, cfloat c, cfloat d, uint block, uint base)
 {
+    // Interleave and write out in bit-reversed order.
 #if FFT_CVECTOR_SIZE == 4
     store_shared(base + 4u * block + 0u, cfloat(a.x, c.x, b.x, d.x));
     store_shared(base + 4u * block + 1u, cfloat(a.y, c.y, b.y, d.y));
@@ -118,6 +131,7 @@ void load_shared(out cfloat a, out cfloat b, out cfloat c, out cfloat d, uint bl
 
 void store_shared(cfloat a, cfloat b, cfloat c, cfloat d, cfloat e, cfloat f, cfloat g, cfloat h, uint block, uint base)
 {
+    // Interleave and write out in bit-reversed order.
 #if FFT_CVECTOR_SIZE == 4
     store_shared(base + 8u * block + 0u, cfloat(a.x, e.x, c.x, g.x));
     store_shared(base + 8u * block + 1u, cfloat(b.x, f.x, d.x, h.x));

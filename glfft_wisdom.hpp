@@ -82,7 +82,7 @@ struct FFTStaticWisdom
     unsigned min_workgroup_size_shared = 1;
     unsigned max_workgroup_size = 128; // GLES 3.1 mandates support for this.
     unsigned min_vector_size = 2;
-    unsigned max_vector_size = 8;
+    unsigned max_vector_size = 4;
     Tristate shared_banked = DontCare;
 };
 

@@ -16,6 +16,24 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
+// Radix 16 FFT is implemented by doing separate radix-4 FFTs in four threads, then the results are shared via shared memory,
+// and the final radix-16 is completed by doing radix-4 FFT again.
+// Radix-16 FFT can be implemented directly without shared memory,
+// but the register pressure would likely degrade performance significantly over just using shared.
+
+// The radix-16 FFT would normally looks like this:
+// cfloat a[i] = load_global(.... + i * quarter_samples);
+// However, we interleave these into 4 separate threads (using LocalInvocationID.z) so that every thread
+// gets its own FFT-4 transform.
+
+// Z == 0, (0, 4,  8, 12)
+// Z == 1, (1, 5,  9, 13)
+// Z == 2, (2, 6, 10, 14)
+// Z == 3, (3, 7, 11, 15)
+
+// The FFT results are written in stockham autosort fashion to shared memory.
+// The final FFT-4 transform is then read from shared memory with the same interleaving pattern used above.
+
 void FFT16_p1_horiz(uvec2 i)
 {
     uint quarter_samples = gl_NumWorkGroups.x * gl_WorkGroupSize.x;

@@ -16,6 +16,8 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
+// Basically the same as FFT16, but 2xFFT-8. See comments in fft_radix16.comp for more.
+
 void FFT64_p1_horiz(uvec2 i)
 {
     uint octa_samples = gl_NumWorkGroups.x * gl_WorkGroupSize.x;

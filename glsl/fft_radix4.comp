@@ -24,6 +24,7 @@ void FFT4_p1(inout cfloat a, inout cfloat b, inout cfloat c, inout cfloat d)
     butterfly_p1(c, d);
 }
 
+// FFT4 is implemented by in-place radix-2 twice.
 void FFT4(inout cfloat a, inout cfloat b, inout cfloat c, inout cfloat d, uint i, uint p)
 {
     uint k = i & (p - 1u);
