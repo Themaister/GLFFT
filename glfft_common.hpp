@@ -16,6 +16,8 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
+// For the most part used by the implementation.
+
 #ifndef GLFFT_COMMON_HPP__
 #define GLFFT_COMMON_HPP__
 
@@ -33,8 +35,12 @@ namespace GLFFT
 
 enum Direction
 {
+    /// Forward FFT transform.
     Forward = -1,
+    /// Inverse FFT transform, but with two inputs (in frequency domain) which are multiplied together
+    /// for convolution.
     InverseConvolve = 0,
+    /// Inverse FFT transform.
     Inverse = 1
 };
 
@@ -51,16 +57,27 @@ enum Mode
 
 enum Type
 {
+    /// Regular complex-to-complex transform.
     ComplexToComplex,
+    /// Complex-to-complex dual transform where the complex value is four-dimensional,
+    /// i.e. a vector of two complex values. Typically used to transform RGBA data.
     ComplexToComplexDual,
+    /// Complex-to-real transform. N / 2 + 1 complex values are used per row with a stride of N complex samples.
     ComplexToReal,
+    /// Real-to-complex transform. N / 2 + 1 complex output samples are created per row with a stride of N complex samples.
     RealToComplex
 };
 
 enum Target
 {
+    /// GL_SHADER_STORAGE_BUFFER
     SSBO,
+    /// Textures, when used as output, type is determined by transform type.
+    /// ComplexToComplex / RealToComplex -> GL_RG16F
+    /// ComplexToComplexDual -> GL_RGBA16F
     Image,
+    /// Real-valued (single component) textures, when used as output, type is determined by transform type.
+    /// ComplexToReal -> GL_R32F (because GLES 3.1 doesn't have GL_R16F image type).
     ImageReal
 };
 
@@ -87,22 +104,36 @@ struct Parameters
     }
 };
 
+/// @brief Options for FFT implementation.
+/// Defaults for performance as conservative.
 struct FFTOptions
 {
-    // Conservative defaults.
     struct Performance
     {
+        /// Workgroup size used in layout(local_size_x).
+        /// Only affects performance, however, large values may make implementations of smaller sized FFTs impossible.
+        /// FFT constructor will throw in this case.
         unsigned workgroup_size_x = 4;
+        /// Workgroup size used in layout(local_size_x).
+        /// Only affects performance, however, large values may make implementations of smaller sized FFTs impossible.
+        /// FFT constructor will throw in this case.
         unsigned workgroup_size_y = 1;
+        /// Vector size. Very GPU dependent. "Scalar" GPUs prefer 2 here, vector GPUs prefer 4 (and maybe 8).
         unsigned vector_size = 2;
+        /// Whether to use banked shared memory or not.
+        /// Desktop GPUs prefer true here, false for mobile in general.
         bool shared_banked = false;
     } performance;
 
     struct Type
     {
+        /// Whether internal shader should be mediump float.
         bool fp16 = false;
+        /// Whether input SSBO is a packed 2xfp16 format. Otherwise, regular FP32.
         bool input_fp16 = false;
+        /// Whether output SSBO is a packed 2xfp16 format. Otherwise, regular FP32.
         bool output_fp16 = false;
+        /// Whether to apply 1 / N normalization factor.
         bool normalize = false;
     } type;
 };
