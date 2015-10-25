@@ -1,0 +1,47 @@
+import org.apache.tools.ant.taskdefs.condition.Os
+apply plugin: 'com.android.application'
+
+android {
+    compileSdkVersion 23
+    buildToolsVersion "23.0.1"
+
+    defaultConfig {
+        applicationId "net.themaister.glfft"
+        minSdkVersion 21
+        targetSdkVersion 23
+        versionCode 1
+        versionName "1.0"
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    sourceSets {
+        main {
+            jni.srcDirs = []
+            jniLibs.srcDir '../../libs'
+        }
+    }
+
+    task ndkBuild(type: Exec) {
+        if (Os.isFamily(Os.FAMILY_WINDOWS)) {
+            commandLine 'ndk-build.cmd', '-C', file('../../').absolutePath
+        } else {
+            commandLine 'ndk-build', '-C', file('../../').absolutePath
+        }
+    }
+
+    tasks.withType(JavaCompile) {
+        compileTask -> compileTask.dependsOn ndkBuild
+    }
+}
+
+dependencies {
+    compile fileTree(dir: 'libs', include: ['*.jar'])
+    testCompile 'junit:junit:4.12'
+    compile 'com.android.support:appcompat-v7:23.1.0'
+    compile 'com.android.support:design:23.1.0'
+}

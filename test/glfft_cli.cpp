@@ -450,7 +450,7 @@ int GLFFT::cli_main(
         int argc, char *argv[]) noexcept
 {
     auto ctx = unique_ptr<Context>(new Context(create_context(), destroy_context));
-    if (!ctx)
+    if (!ctx || !ctx->ctx)
     {
         return EXIT_FAILURE;
     }

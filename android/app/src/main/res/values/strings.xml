@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">GLFFT Test and Bench Suite</string>
+    <string name="action_run_test_suite">Run Test Suite</string>
+</resources>

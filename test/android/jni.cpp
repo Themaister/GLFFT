@@ -18,9 +18,12 @@
 
 #include "glfft_interface.hpp"
 #include "glfft_context.hpp"
+#include "glfft_cli.hpp"
 #include <GLES2/gl2ext.h>
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
+
+#include "net_themaister_glfft_Native.h"
 
 #include <memory>
 using namespace std;
@@ -127,5 +130,20 @@ void *GLFFT::Context::create()
 void GLFFT::Context::destroy(void *ptr)
 {
     delete static_cast<egl_ctx*>(ptr);
+}
+
+JNIEXPORT jint JNICALL Java_net_themaister_glfft_Native_runTestSuite(JNIEnv *, jclass)
+{
+    static const char *argv[] = {
+        "glfft_cli",
+        "test",
+        "--test-all",
+        nullptr,
+    };
+
+    return GLFFT::cli_main(
+            GLFFT::Context::create,
+            GLFFT::Context::destroy,
+            sizeof(argv) / sizeof(argv[0]) - 1, (char**)argv);
 }
 
