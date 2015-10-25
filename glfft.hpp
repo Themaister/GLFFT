@@ -65,13 +65,15 @@ class FFT
         ///
         /// @param Nx            Number of samples in horizontal dimension.
         /// @param Ny            Number of samples in vertical dimension.
+        /// @param radix         FFT radix to test.
+        /// @param p             Accumulated p factor. If 1, "first pass" mode is tested, otherwise, generic FFT stages.
         /// @param mode          The transform mode.
         /// @param input_target  GL object type of input target. For real-to-complex with texture as input, ImageReal is used.
         /// @param output_target GL object type of output target. For complex-to-real with texture as output, ImageReal is used.
         /// @param cache         A program cache for caching the GLFFT programs created.
         /// @param options       FFT options such as performance related parameters and types.
         FFT(unsigned Nx, unsigned Ny, unsigned radix, unsigned p,
-                Mode mode, Target input_target, Target ouptut_target,
+                Mode mode, Target input_target, Target output_target,
                 std::shared_ptr<ProgramCache> cache, const FFTOptions &options);
 
         /// @brief Process the FFT.
