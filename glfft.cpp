@@ -21,6 +21,7 @@
 #include <stdexcept>
 #include <fstream>
 #include <sstream>
+#include <numeric>
 #include <assert.h>
 
 #ifndef GLFFT_SHADER_FROM_FILE
