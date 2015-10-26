@@ -26,6 +26,7 @@
 #include "net_themaister_glfft_Native.h"
 
 #include <memory>
+#include <vector>
 using namespace std;
 
 struct egl_ctx
@@ -132,18 +133,76 @@ void GLFFT::Context::destroy(void *ptr)
     delete static_cast<egl_ctx*>(ptr);
 }
 
-JNIEXPORT jint JNICALL Java_net_themaister_glfft_Native_runTestSuite(JNIEnv *, jclass)
+static int start_task(const vector<const char*> &argv)
 {
-    static const char *argv[] = {
+    GLFFT::set_async_task([argv] {
+            return GLFFT::cli_main(
+                GLFFT::Context::create,
+                GLFFT::Context::destroy,
+                argv.size() - 1, (char**)argv.data());
+            });
+
+    GLFFT::get_async_task()->start();
+    int ret = GLFFT::get_async_task()->wait_initialized();
+    if (ret)
+        return ret;
+    return 0;
+}
+
+JNIEXPORT jint JNICALL Java_net_themaister_glfft_Native_beginRunTestSuiteTask(JNIEnv *, jclass)
+{
+    vector<const char*> argv = {
         "glfft_cli",
         "test",
         "--test-all",
         nullptr,
     };
 
-    return GLFFT::cli_main(
-            GLFFT::Context::create,
-            GLFFT::Context::destroy,
-            sizeof(argv) / sizeof(argv[0]) - 1, (char**)argv);
+    return start_task(argv);
+}
+
+JNIEXPORT jint JNICALL Java_net_themaister_glfft_Native_beginBenchTask
+  (JNIEnv *, jclass)
+{
+    vector<const char*> argv = {
+        "glfft_cli",
+        "bench",
+        "--width",
+        "1024",
+        "--height",
+        "1024",
+        "--fp16",
+        nullptr,
+    };
+
+    return start_task(argv);
+}
+
+JNIEXPORT jint JNICALL Java_net_themaister_glfft_Native_iterate
+  (JNIEnv *, jclass)
+{
+    auto *task = GLFFT::get_async_task();
+    if (task->is_completed())
+        return task->get_exit_code();
+    return task->wait_next_update();
+}
+
+JNIEXPORT jint JNICALL Java_net_themaister_glfft_Native_endTask
+  (JNIEnv *, jclass)
+{
+    GLFFT::end_async_task();
+    return 0;
+}
+
+JNIEXPORT jint JNICALL Java_net_themaister_glfft_Native_getCurrentProgress
+  (JNIEnv *, jclass)
+{
+    return GLFFT::get_async_task()->get_current_progress();
+}
+
+JNIEXPORT jint JNICALL Java_net_themaister_glfft_Native_getTargetProgress
+  (JNIEnv *, jclass)
+{
+    return GLFFT::get_async_task()->get_target_progress();
 }
 

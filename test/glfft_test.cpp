@@ -891,13 +891,28 @@ void GLFFT::Internal::run_test_suite(const TestSuiteArguments &args)
 
     glfft_log("Enqueued %u tests!\n", unsigned(tests.size()));
 
+    auto *task = get_async_task();
+
     unsigned successful_tests = 0;
     vector<unsigned> failed_tests;
 
     if (!args.exhaustive)
     {
+        if (task)
+        {
+            task->set_target_progress(args.test_id_max - args.test_id_min + 1);
+            task->signal_initialized();
+        }
+
         for (unsigned i = args.test_id_min; i <= args.test_id_max; i++)
         {
+            if (task)
+            {
+                task->set_current_progress(i - args.test_id_min);
+                if (task->is_cancelled())
+                    break;
+            }
+
             // Throws on range error.
             try
             {
@@ -916,9 +931,22 @@ void GLFFT::Internal::run_test_suite(const TestSuiteArguments &args)
     }
     else
     {
+        if (task)
+        {
+            task->set_target_progress(tests.size());
+            task->signal_initialized();
+        }
+
         unsigned index = 0;
         for (auto &test : tests)
         {
+            if (task)
+            {
+                task->set_current_progress(index);
+                if (task->is_cancelled())
+                    break;
+            }
+
             try
             {
                 glfft_log("Running test #%u!\n", index);

@@ -457,7 +457,7 @@ const FFTOptions::Performance& FFTWisdom::find_optimal_options_or_default(unsign
 
     auto itr = library.find(pass);
 
-#if 1
+#if 0
     if (itr == end(library))
     {
         glfft_log("Didn't find options for (%u x %u, radix %u, mode %u, input_target %u, output_target %u)\n",

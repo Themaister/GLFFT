@@ -9,10 +9,50 @@ extern "C" {
 #endif
 /*
  * Class:     net_themaister_glfft_Native
- * Method:    runTestSuite
- * Signature: ()V
+ * Method:    beginRunTestSuiteTask
+ * Signature: ()I
  */
-JNIEXPORT jint JNICALL Java_net_themaister_glfft_Native_runTestSuite
+JNIEXPORT jint JNICALL Java_net_themaister_glfft_Native_beginRunTestSuiteTask
+  (JNIEnv *, jclass);
+
+/*
+ * Class:     net_themaister_glfft_Native
+ * Method:    beginBenchTask
+ * Signature: ()I
+ */
+JNIEXPORT jint JNICALL Java_net_themaister_glfft_Native_beginBenchTask
+  (JNIEnv *, jclass);
+
+/*
+ * Class:     net_themaister_glfft_Native
+ * Method:    iterate
+ * Signature: ()I
+ */
+JNIEXPORT jint JNICALL Java_net_themaister_glfft_Native_iterate
+  (JNIEnv *, jclass);
+
+/*
+ * Class:     net_themaister_glfft_Native
+ * Method:    endTask
+ * Signature: ()I
+ */
+JNIEXPORT jint JNICALL Java_net_themaister_glfft_Native_endTask
+  (JNIEnv *, jclass);
+
+/*
+ * Class:     net_themaister_glfft_Native
+ * Method:    getCurrentProgress
+ * Signature: ()I
+ */
+JNIEXPORT jint JNICALL Java_net_themaister_glfft_Native_getCurrentProgress
+  (JNIEnv *, jclass);
+
+/*
+ * Class:     net_themaister_glfft_Native
+ * Method:    getTargetProgress
+ * Signature: ()I
+ */
+JNIEXPORT jint JNICALL Java_net_themaister_glfft_Native_getTargetProgress
   (JNIEnv *, jclass);
 
 #ifdef __cplusplus

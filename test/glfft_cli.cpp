@@ -286,12 +286,32 @@ static void run_benchmark(const BenchArguments &args)
         output_name = output.get();
     }
 
+    auto *task = get_async_task();
+
+    if (task)
+    {
+        task->set_target_progress(3);
+        task->signal_initialized();
+        if (task->is_cancelled())
+            return;
+    }
+
     FFTWisdom wisdom;
     wisdom.set_static_wisdom(FFTWisdom::get_static_wisdom_from_renderer(reinterpret_cast<const char*>(glGetString(GL_RENDERER))));
     wisdom.set_bench_params(args.warmup, args.iterations, args.dispatches, args.timeout);
     wisdom.learn_optimal_options_exhaustive(args.width, args.height, args.type, input_target, output_target, options.type);
 
+    if (task)
+    {
+        task->set_current_progress(1);
+    }
+
     FFT fft(args.width, args.height, args.type, args.type == ComplexToReal ? Inverse : Forward, input_target, output_target, cache, options, wisdom);
+
+    if (task)
+    {
+        task->set_current_progress(2);
+    }
 
     double estimated_gflops = 1e-9 * get_estimated_flops(args.width, args.height, args.type);
     double estimated_bandwidth_gb = 1e-9 * fft.get_num_passes() * get_estimated_bw_per_pass(args.width, args.height, args.type, args.fp16);
@@ -304,6 +324,11 @@ static void run_benchmark(const BenchArguments &args)
     glfft_log("  %8.3f ms\n", 1000.0 * dispatch_time);
     glfft_log("  %8.3f GFlop/s (estimated)\n", estimated_gflops / dispatch_time);
     glfft_log("  %8.3f GB/s global memory bandwidth (estimated)\n", estimated_bandwidth_gb / dispatch_time);
+
+    if (task)
+    {
+        task->set_current_progress(3);
+    }
 }
 
 static void cli_help(char *argv[])
@@ -490,5 +515,86 @@ int GLFFT::cli_main(
     }
 
     return EXIT_SUCCESS;
+}
+
+static unique_ptr<AsyncTask> current_task;
+
+void GLFFT::set_async_task(std::function<int ()> fun)
+{
+    current_task = unique_ptr<AsyncTask>(new AsyncTask(move(fun)));
+}
+
+AsyncTask* GLFFT::get_async_task()
+{
+    return current_task.get();
+}
+
+void GLFFT::end_async_task()
+{
+    current_task.reset();
+}
+
+AsyncTask::AsyncTask(function<int ()> func)
+    : fun(move(func))
+{}
+
+void AsyncTask::start()
+{
+    cancelled = false;
+    completed = false;
+
+    task = thread([this] {
+                int ret = fun();
+                signal_completed(ret);
+            });
+}
+
+int AsyncTask::wait_initialized()
+{
+    unique_lock<mutex> lock(mut);
+    cond.wait(lock, [this]() { return initialized || completed; });
+    return completed ? completed_status : (initialized ? 0 : -1);
+}
+
+int AsyncTask::wait_next_update()
+{
+    unique_lock<mutex> lock(mut);
+    cond.wait(lock, [this]() { return current_progress > observed_progress; });
+    observed_progress++;
+    return cancelled ? 0 : -1;
+}
+
+void AsyncTask::set_current_progress(unsigned progress)
+{
+    lock_guard<mutex> lock(mut);
+    current_progress = progress;
+    cond.notify_all();
+}
+
+void AsyncTask::set_target_progress(unsigned progress)
+{
+    target_progress = progress;
+}
+
+void AsyncTask::signal_initialized()
+{
+    lock_guard<mutex> lock(mut);
+    initialized = true;
+    cond.notify_all();
+}
+
+void AsyncTask::signal_completed(int status)
+{
+    lock_guard<mutex> lock(mut);
+    completed_status = status;
+    completed = true;
+    cond.notify_all();
+}
+
+AsyncTask::~AsyncTask()
+{
+    cancelled = true;
+    if (task.joinable())
+        task.join();
 }
 

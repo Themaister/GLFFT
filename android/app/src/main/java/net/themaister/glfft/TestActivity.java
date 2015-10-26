@@ -8,6 +8,9 @@ import android.support.v7.widget.Toolbar;
 import android.view.Menu;
 import android.view.MenuItem;
 
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.ExecutionException;
+
 public class TestActivity extends AppCompatActivity {
 
     @Override
@@ -36,30 +39,55 @@ public class TestActivity extends AppCompatActivity {
             runTestSuiteInThread();
             return true;
         }
+        else if (id == R.id.action_basic_bench) {
+            runBasicBenchInThread();
+            return true;
+        }
 
         return super.onOptionsItemSelected(item);
     }
 
     private class GLFFTTask extends AsyncTask<Integer, Integer, Integer> {
         public static final int FULL_TEST_SUITE = 1;
+        public static final int BASIC_BENCH = 2;
 
         @Override
         protected Integer doInBackground(Integer... args) {
             int result = 0;
             switch (args[0]) {
                 case FULL_TEST_SUITE:
-                    // TODO: Need to have proper progress bars.
-                    result = Native.runTestSuite();
+                    result = Native.beginRunTestSuiteTask();
+                    break;
+
+                case BASIC_BENCH:
+                    result = Native.beginBenchTask();
                     break;
             }
 
-            return Integer.valueOf(result);
+            if (result != 0)
+                return Integer.valueOf(result);
+
+            do {
+                result = Native.iterate();
+                if (isCancelled())
+                    break;
+                publishProgress(Native.getCurrentProgress(), Native.getTargetProgress());
+            } while (result < 0);
+
+            Native.endTask();
+            return result;
         }
 
-        //@Override
-        //protected void onProgressUpdate(Integer... progress) {
-            //setProgressPercent(progress[0]);
-        //}
+        @Override
+        protected void onCancelled(Integer result) {
+            Snackbar.make(findViewById(R.id.content), "GLFFT run cancelled.", Snackbar.LENGTH_LONG).show();
+        }
+
+        @Override
+        protected void onProgressUpdate(Integer... progress) {
+            if ((progress[0] & 31) == 0)
+                Snackbar.make(findViewById(R.id.content), "Progress: " + progress[0] + "/" + progress[1], Snackbar.LENGTH_SHORT).show();
+        }
 
         @Override
         protected void onPostExecute(Integer result) {
@@ -67,7 +95,39 @@ public class TestActivity extends AppCompatActivity {
         }
     }
 
+    private GLFFTTask currentTask = null;
+
+    private void endCurrentRun() {
+        if (currentTask != null) {
+            currentTask.cancel(false);
+            try {
+                currentTask.get();
+            } catch (CancellationException e) {
+            } catch (ExecutionException e) {
+            } catch (InterruptedException e) {
+            }
+            currentTask = null;
+        }
+    }
+
     private void runTestSuiteInThread() {
-        new GLFFTTask().execute(GLFFTTask.FULL_TEST_SUITE);
+        endCurrentRun();
+        currentTask = new GLFFTTask();
+        currentTask.execute(GLFFTTask.FULL_TEST_SUITE);
+    }
+
+    private void runBasicBenchInThread() {
+        endCurrentRun();
+        currentTask = new GLFFTTask();
+        currentTask.execute(GLFFTTask.BASIC_BENCH);
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        if (currentTask != null) {
+            currentTask.cancel(false);
+            currentTask = null;
+        }
     }
 }
