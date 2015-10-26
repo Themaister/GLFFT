@@ -7,6 +7,9 @@ import android.support.v7.app.AppCompatActivity;
 import android.support.v7.widget.Toolbar;
 import android.view.Menu;
 import android.view.MenuItem;
+import android.view.View;
+import android.widget.ScrollView;
+import android.widget.TextView;
 
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutionException;
@@ -19,6 +22,9 @@ public class TestActivity extends AppCompatActivity {
         setContentView(R.layout.activity_test);
         Toolbar toolbar = (Toolbar) findViewById(R.id.toolbar);
         setSupportActionBar(toolbar);
+
+        ScrollView scrollView = (ScrollView) findViewById(R.id.scrollView);
+        scrollView.fullScroll(View.FOCUS_DOWN);
     }
 
     @Override
@@ -28,6 +34,18 @@ public class TestActivity extends AppCompatActivity {
         return true;
     }
 
+    private void runTestSuiteInThread() {
+        endCurrentRun();
+        currentTask = new GLFFTTask((TextView) findViewById(R.id.content));
+        currentTask.execute(GLFFTTask.FULL_TEST_SUITE);
+    }
+
+    private void runBasicBenchInThread() {
+        endCurrentRun();
+        currentTask = new GLFFTTask((TextView) findViewById(R.id.content));
+        currentTask.execute(GLFFTTask.BASIC_BENCH);
+    }
+
     @Override
     public boolean onOptionsItemSelected(MenuItem item) {
         // Handle action bar item clicks here. The action bar will
@@ -35,21 +53,28 @@ public class TestActivity extends AppCompatActivity {
         // as you specify a parent activity in AndroidManifest.xml.
         int id = item.getItemId();
 
-        if (id == R.id.action_run_test_suite) {
-            runTestSuiteInThread();
-            return true;
-        }
-        else if (id == R.id.action_basic_bench) {
-            runBasicBenchInThread();
-            return true;
+        switch (id) {
+            case R.id.action_run_test_suite:
+                runTestSuiteInThread();
+                return true;
+
+            case R.id.action_basic_bench:
+                runBasicBenchInThread();
+                return true;
         }
 
         return super.onOptionsItemSelected(item);
     }
 
-    private class GLFFTTask extends AsyncTask<Integer, Integer, Integer> {
+    private class GLFFTTask extends AsyncTask<Integer, String, Integer> {
         public static final int FULL_TEST_SUITE = 1;
         public static final int BASIC_BENCH = 2;
+
+        TextView view;
+
+        GLFFTTask(TextView textView) {
+            view = textView;
+        }
 
         @Override
         protected Integer doInBackground(Integer... args) {
@@ -64,33 +89,43 @@ public class TestActivity extends AppCompatActivity {
                     break;
             }
 
-            if (result != 0)
-                return Integer.valueOf(result);
+            if (result != 0) {
+                Native.endTask();
+                return result;
+            }
 
-            do {
-                result = Native.iterate();
+            String log = Native.pull();
+            while (log != null || Native.isComplete() == 0) {
+                publishProgress(log);
                 if (isCancelled())
                     break;
-                publishProgress(Native.getCurrentProgress(), Native.getTargetProgress());
-            } while (result < 0);
+                log = Native.pull();
+            }
 
+            result = Native.getExitCode();
             Native.endTask();
             return result;
         }
 
         @Override
         protected void onCancelled(Integer result) {
+            view.append("GLFFT Task cancelled! (code: " + result + ")\n");
             Snackbar.make(findViewById(R.id.content), "GLFFT run cancelled.", Snackbar.LENGTH_LONG).show();
         }
 
         @Override
-        protected void onProgressUpdate(Integer... progress) {
-            if ((progress[0] & 31) == 0)
-                Snackbar.make(findViewById(R.id.content), "Progress: " + progress[0] + "/" + progress[1], Snackbar.LENGTH_SHORT).show();
+        protected void onProgressUpdate(String... progress) {
+            view.append(progress[0]);
+        }
+
+        @Override
+        protected void onPreExecute() {
+            view.append("\nStarting GLFFT task ...\n");
         }
 
         @Override
         protected void onPostExecute(Integer result) {
+            view.append("GLFFT Task completed! (code: " + result + ")\n\n");
             Snackbar.make(findViewById(R.id.content), "Ran GLFFT ... exit code: " + result, Snackbar.LENGTH_LONG).show();
         }
     }
@@ -108,18 +143,6 @@ public class TestActivity extends AppCompatActivity {
             }
             currentTask = null;
         }
-    }
-
-    private void runTestSuiteInThread() {
-        endCurrentRun();
-        currentTask = new GLFFTTask();
-        currentTask.execute(GLFFTTask.FULL_TEST_SUITE);
-    }
-
-    private void runBasicBenchInThread() {
-        endCurrentRun();
-        currentTask = new GLFFTTask();
-        currentTask.execute(GLFFTTask.BASIC_BENCH);
     }
 
     @Override

@@ -20,10 +20,15 @@
 #define GLFFT_CLI_HPP__
 
 #include <functional>
+
+#ifdef GLFFT_CLI_ASYNC
 #include <thread>
 #include <mutex>
 #include <condition_variable>
 #include <atomic>
+#include <queue>
+#include <string>
+#endif
 
 namespace GLFFT
 {
@@ -44,46 +49,46 @@ namespace GLFFT
         void run_test_suite(const TestSuiteArguments &args);
     }
 
+#ifdef GLFFT_CLI_ASYNC
+    // Throws this on cancellation.
+    struct AsyncCancellation {};
+
+    // Glue code to fake cooperative threading which would be much nicer for this scenario ...
     class AsyncTask
     {
         public:
             AsyncTask(std::function<int ()> fun);
             ~AsyncTask();
 
-            int wait_next_update();
-            int wait_initialized();
             void start();
 
-            unsigned get_current_progress() { return observed_progress; }
-            unsigned get_target_progress() { return target_progress; }
+            // Called from auxillary thread or similar.
+            bool pull(std::string &msg);
             bool is_completed() { return completed; }
             int get_exit_code() { return completed_status; }
 
             // Only called from task thread.
-            void set_current_progress(unsigned progress);
-            void set_target_progress(unsigned progress);
-            void signal_initialized();
-            void signal_completed(int status);
             bool is_cancelled() { return cancelled; }
+            void push_message(const char *msg);
 
         private:
             std::function<int ()> fun;
             std::thread task;
             std::mutex mut;
             std::condition_variable cond;
-            bool initialized = false;
             std::atomic_bool cancelled;
             std::atomic_bool completed;
             int completed_status = 0;
 
-            unsigned observed_progress = 0;
-            unsigned current_progress = 0;
-            unsigned target_progress = 0;
+            std::queue<std::string> messages;
+            void signal_completed(int status);
     };
 
     void set_async_task(std::function<int ()> fun);
     void end_async_task();
+    void check_async_cancel();
     AsyncTask* get_async_task();
+#endif
 
     int cli_main(
             const std::function<void* ()> &create_context,

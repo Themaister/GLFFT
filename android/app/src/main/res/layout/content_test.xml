@@ -9,6 +9,13 @@
     app:layout_behavior="@string/appbar_scrolling_view_behavior"
     tools:showIn="@layout/activity_test" tools:context=".TestActivity">
 
-    <TextView android:text="" android:layout_width="wrap_content"
-        android:layout_height="wrap_content" android:id="@+id/content" />
+    <ScrollView android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:id="@+id/scrollView"
+        android:layout_weight="1">
+        <TextView android:id="@+id/content"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"/>
+    </ScrollView>
+
 </RelativeLayout>

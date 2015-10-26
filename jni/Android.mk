@@ -13,7 +13,7 @@ include $(BUILD_STATIC_LIBRARY)
 
 include $(CLEAR_VARS)
 
-LOCAL_CFLAGS += -std=c++11 -Wall -Wextra
+LOCAL_CFLAGS += -std=c++11 -Wall -Wextra -DGLFFT_CLI_ASYNC
 LOCAL_MODULE := GLFFT
 LOCAL_SRC_FILES := $(addprefix ../,$(wildcard *.cpp) test/android/jni.cpp test/glfft_cli.cpp test/glfft_test.cpp)
 LOCAL_CPP_FEATURES := exceptions

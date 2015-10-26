@@ -24,14 +24,6 @@
 #include <time.h>
 #include <stdarg.h>
 
-static inline void glfft_android_log(const char *fmt, ...)
-{
-    va_list va;
-    va_start(va, fmt);
-    __android_log_vprint(ANDROID_LOG_INFO, "GLFFT", fmt, va);
-    va_end(va);
-}
-
 static inline double glfft_get_time()
 {
     timespec ts;
@@ -40,7 +32,6 @@ static inline double glfft_get_time()
 }
 
 #define GLFFT_GLSL_LANG_STRING "#version 310 es\n"
-#define GLFFT_LOG_OVERRIDE glfft_android_log 
 #define GLFFT_TIME_OVERRIDE glfft_get_time 
 
 #endif

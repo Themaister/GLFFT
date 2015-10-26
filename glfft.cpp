@@ -24,6 +24,10 @@
 #include <numeric>
 #include <assert.h>
 
+#ifdef GLFFT_CLI_ASYNC
+#include "glfft_cli.hpp"
+#endif
+
 #ifndef GLFFT_SHADER_FROM_FILE
 #include "glsl/fft_common.inc"
 #include "glsl/fft_radix4.inc"
@@ -997,6 +1001,10 @@ double FFT::bench(GLuint output, GLuint input,
     glFinish();
     for (unsigned i = 0; i < warmup_iterations; i++)
     {
+#ifdef GLFFT_CLI_ASYNC
+            check_async_cancel();
+#endif
+
         process(output, input);
     }
     glFinish();
@@ -1007,6 +1015,10 @@ double FFT::bench(GLuint output, GLuint input,
 
     for (unsigned i = 0; i < iterations && (((glfft_time() - start_time) < max_time) || i == 0); i++)
     {
+#ifdef GLFFT_CLI_ASYNC
+            check_async_cancel();
+#endif
+
         double iteration_start = glfft_time();
         for (unsigned d = 0; d < dispatches_per_iteration; d++)
         {

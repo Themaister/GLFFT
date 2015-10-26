@@ -25,34 +25,34 @@ JNIEXPORT jint JNICALL Java_net_themaister_glfft_Native_beginBenchTask
 
 /*
  * Class:     net_themaister_glfft_Native
- * Method:    iterate
- * Signature: ()I
- */
-JNIEXPORT jint JNICALL Java_net_themaister_glfft_Native_iterate
-  (JNIEnv *, jclass);
-
-/*
- * Class:     net_themaister_glfft_Native
  * Method:    endTask
- * Signature: ()I
+ * Signature: ()V
  */
-JNIEXPORT jint JNICALL Java_net_themaister_glfft_Native_endTask
+JNIEXPORT void JNICALL Java_net_themaister_glfft_Native_endTask
   (JNIEnv *, jclass);
 
 /*
  * Class:     net_themaister_glfft_Native
- * Method:    getCurrentProgress
+ * Method:    isComplete
  * Signature: ()I
  */
-JNIEXPORT jint JNICALL Java_net_themaister_glfft_Native_getCurrentProgress
+JNIEXPORT jint JNICALL Java_net_themaister_glfft_Native_isComplete
   (JNIEnv *, jclass);
 
 /*
  * Class:     net_themaister_glfft_Native
- * Method:    getTargetProgress
+ * Method:    getExitCode
  * Signature: ()I
  */
-JNIEXPORT jint JNICALL Java_net_themaister_glfft_Native_getTargetProgress
+JNIEXPORT jint JNICALL Java_net_themaister_glfft_Native_getExitCode
+  (JNIEnv *, jclass);
+
+/*
+ * Class:     net_themaister_glfft_Native
+ * Method:    pull
+ * Signature: ()Ljava/lang/String;
+ */
+JNIEXPORT jstring JNICALL Java_net_themaister_glfft_Native_pull
   (JNIEnv *, jclass);
 
 #ifdef __cplusplus

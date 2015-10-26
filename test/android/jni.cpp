@@ -80,7 +80,7 @@ void *GLFFT::Context::create()
     egl->dpy = eglGetDisplay(EGL_DEFAULT_DISPLAY);
     if (egl->dpy == EGL_NO_DISPLAY)
     {
-        glfft_log("Failed to create display.");
+        glfft_log("Failed to create display.\n");
         return nullptr;
     }
     eglInitialize(egl->dpy, nullptr, nullptr);
@@ -89,27 +89,27 @@ void *GLFFT::Context::create()
     eglChooseConfig(egl->dpy, attr, &egl->conf, 1, &num_configs);
     if (num_configs != 1)
     {
-        glfft_log("Failed to get EGL config.");
+        glfft_log("Failed to get EGL config.\n");
         return nullptr;
     }
 
     egl->ctx = eglCreateContext(egl->dpy, egl->conf, EGL_NO_CONTEXT, context_attr);
     if (egl->ctx == EGL_NO_CONTEXT)
     {
-        glfft_log("Failed to create GLES context.");
+        glfft_log("Failed to create GLES context.\n");
         return nullptr;
     }
 
     egl->surf = eglCreatePbufferSurface(egl->dpy, egl->conf, surface_attr);
     if (egl->surf == EGL_NO_SURFACE)
     {
-        glfft_log("Failed to create Pbuffer surface.");
+        glfft_log("Failed to create Pbuffer surface.\n");
         return nullptr;
     }
 
     if (!eglMakeCurrent(egl->dpy, egl->surf, egl->surf, egl->ctx))
     {
-        glfft_log("Failed to make EGL context current.");
+        glfft_log("Failed to make EGL context current.\n");
         return nullptr;
     }
 
@@ -120,7 +120,7 @@ void *GLFFT::Context::create()
     unsigned ctx_version = major * 1000 + minor;
     if (ctx_version < 3001)
     {
-        glfft_log("OpenGL ES 3.1 not supported (got %u.%u context).",
+        glfft_log("OpenGL ES 3.1 not supported (got %u.%u context).\n",
                 major, minor);
         return nullptr;
     }
@@ -133,6 +133,21 @@ void GLFFT::Context::destroy(void *ptr)
     delete static_cast<egl_ctx*>(ptr);
 }
 
+void glfft_log(const char *fmt, ...)
+{
+    va_list va;
+    va_start(va, fmt);
+    __android_log_vprint(ANDROID_LOG_INFO, "GLFFT", fmt, va);
+    va_end(va);
+
+#ifdef GLFFT_CLI_ASYNC
+    char buffer[16 * 1024];
+    va_start(va, fmt);
+    vsnprintf(buffer, sizeof(buffer), fmt, va);
+    GLFFT::get_async_task()->push_message(buffer);
+#endif
+}
+
 static int start_task(const vector<const char*> &argv)
 {
     GLFFT::set_async_task([argv] {
@@ -143,9 +158,6 @@ static int start_task(const vector<const char*> &argv)
             });
 
     GLFFT::get_async_task()->start();
-    int ret = GLFFT::get_async_task()->wait_initialized();
-    if (ret)
-        return ret;
     return 0;
 }
 
@@ -178,31 +190,32 @@ JNIEXPORT jint JNICALL Java_net_themaister_glfft_Native_beginBenchTask
     return start_task(argv);
 }
 
-JNIEXPORT jint JNICALL Java_net_themaister_glfft_Native_iterate
+JNIEXPORT jstring JNICALL Java_net_themaister_glfft_Native_pull
+  (JNIEnv *env, jclass)
+{
+    string str;
+    auto *task = GLFFT::get_async_task();
+    bool ret = task->pull(str);
+    return ret ? env->NewStringUTF(str.c_str()) : nullptr;
+}
+
+JNIEXPORT jint JNICALL Java_net_themaister_glfft_Native_getExitCode
   (JNIEnv *, jclass)
 {
     auto *task = GLFFT::get_async_task();
-    if (task->is_completed())
-        return task->get_exit_code();
-    return task->wait_next_update();
+    return task->get_exit_code();
 }
 
-JNIEXPORT jint JNICALL Java_net_themaister_glfft_Native_endTask
+JNIEXPORT jint JNICALL Java_net_themaister_glfft_Native_isComplete
+  (JNIEnv *, jclass)
+{
+    auto *task = GLFFT::get_async_task();
+    return task->is_completed();
+}
+
+JNIEXPORT void JNICALL Java_net_themaister_glfft_Native_endTask
   (JNIEnv *, jclass)
 {
     GLFFT::end_async_task();
-    return 0;
-}
-
-JNIEXPORT jint JNICALL Java_net_themaister_glfft_Native_getCurrentProgress
-  (JNIEnv *, jclass)
-{
-    return GLFFT::get_async_task()->get_current_progress();
-}
-
-JNIEXPORT jint JNICALL Java_net_themaister_glfft_Native_getTargetProgress
-  (JNIEnv *, jclass)
-{
-    return GLFFT::get_async_task()->get_target_progress();
 }
 

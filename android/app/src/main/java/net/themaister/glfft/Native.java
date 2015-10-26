@@ -3,10 +3,12 @@ package net.themaister.glfft;
 public class Native {
     native static int beginRunTestSuiteTask();
     native static int beginBenchTask();
-    native static int iterate();
-    native static int endTask();
-    native static int getCurrentProgress();
-    native static int getTargetProgress();
+    native static void endTask();
+
+    native static int isComplete();
+    native static int getExitCode();
+    native static String pull();
+
     static {
         System.loadLibrary("GLFFT");
     }
