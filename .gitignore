@@ -9,3 +9,9 @@
 *.txt
 /libs
 /obj
+android/.gitignore
+android/app/.gitignore
+android/gradle
+android/gradlew
+android/gradlew.bat
+android/.idea
