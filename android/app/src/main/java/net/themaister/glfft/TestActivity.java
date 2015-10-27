@@ -1,7 +1,9 @@
 package net.themaister.glfft;
 
+import android.content.Context;
 import android.os.AsyncTask;
 import android.os.Bundle;
+import android.os.PowerManager;
 import android.support.design.widget.Snackbar;
 import android.support.v7.app.AppCompatActivity;
 import android.support.v7.widget.Toolbar;
@@ -11,10 +13,14 @@ import android.view.View;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutionException;
 
 public class TestActivity extends AppCompatActivity {
+
+    PowerManager.WakeLock wakeLock;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -23,8 +29,9 @@ public class TestActivity extends AppCompatActivity {
         Toolbar toolbar = (Toolbar) findViewById(R.id.toolbar);
         setSupportActionBar(toolbar);
 
-        ScrollView scrollView = (ScrollView) findViewById(R.id.scrollView);
-        scrollView.fullScroll(View.FOCUS_DOWN);
+        PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+        wakeLock = pm.newWakeLock(PowerManager.ACQUIRE_CAUSES_WAKEUP | PowerManager.FULL_WAKE_LOCK, "GLFFT");
+        wakeLock.acquire();
     }
 
     @Override
@@ -36,13 +43,13 @@ public class TestActivity extends AppCompatActivity {
 
     private void runTestSuiteInThread() {
         endCurrentRun();
-        currentTask = new GLFFTTask((TextView) findViewById(R.id.content));
+        currentTask = new GLFFTTask((ScrollView) findViewById(R.id.scrollView), (TextView) findViewById(R.id.content));
         currentTask.execute(GLFFTTask.FULL_TEST_SUITE);
     }
 
     private void runBasicBenchInThread() {
         endCurrentRun();
-        currentTask = new GLFFTTask((TextView) findViewById(R.id.content));
+        currentTask = new GLFFTTask((ScrollView) findViewById(R.id.scrollView), (TextView) findViewById(R.id.content));
         currentTask.execute(GLFFTTask.BASIC_BENCH);
     }
 
@@ -70,9 +77,34 @@ public class TestActivity extends AppCompatActivity {
         public static final int FULL_TEST_SUITE = 1;
         public static final int BASIC_BENCH = 2;
 
-        TextView view;
+        private TextView view;
+        private ScrollView sview;
+        private List<String> logOutput = new ArrayList<>();
+        private static final int MAX_LINES = 256;
 
-        GLFFTTask(TextView textView) {
+        private void appendLog(String str) {
+            logOutput.add(str);
+            if (logOutput.size() > MAX_LINES)
+                logOutput.remove(0);
+            updateLog();
+        }
+
+        private void clearLog() {
+            logOutput.clear();
+            updateLog();
+        }
+
+        private void updateLog() {
+            StringBuilder builder = new StringBuilder();
+            for (String str : logOutput)
+                builder.append(str);
+
+            view.setText(builder.toString());
+            sview.fullScroll(View.FOCUS_DOWN);
+        }
+
+        public GLFFTTask(ScrollView scrollView, TextView textView) {
+            sview = scrollView;
             view = textView;
         }
 
@@ -102,7 +134,7 @@ public class TestActivity extends AppCompatActivity {
                 log = Native.pull();
             }
 
-            result = Native.getExitCode();
+            result = isCancelled() ? 0 : Native.getExitCode();
             Native.endTask();
             return result;
         }
@@ -115,17 +147,20 @@ public class TestActivity extends AppCompatActivity {
 
         @Override
         protected void onProgressUpdate(String... progress) {
-            view.append(progress[0]);
+            appendLog(progress[0]);
         }
 
         @Override
         protected void onPreExecute() {
-            view.append("\nStarting GLFFT task ...\n");
+            clearLog();
+            appendLog("\nStarting GLFFT task ...\n");
+            sview.fullScroll(View.FOCUS_DOWN);
         }
 
         @Override
         protected void onPostExecute(Integer result) {
             view.append("GLFFT Task completed! (code: " + result + ")\n\n");
+            sview.fullScroll(View.FOCUS_DOWN);
             Snackbar.make(findViewById(R.id.content), "Ran GLFFT ... exit code: " + result, Snackbar.LENGTH_LONG).show();
         }
     }
@@ -148,6 +183,11 @@ public class TestActivity extends AppCompatActivity {
     @Override
     protected void onPause() {
         super.onPause();
+        if (wakeLock != null) {
+            wakeLock.release();
+            wakeLock = null;
+        }
+
         if (currentTask != null) {
             currentTask.cancel(false);
             currentTask = null;

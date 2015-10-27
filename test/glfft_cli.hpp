@@ -51,16 +51,16 @@ namespace GLFFT
 
 #ifdef GLFFT_CLI_ASYNC
     // Throws this on cancellation.
-    struct AsyncCancellation {};
+    struct AsyncCancellation { int code; };
 
     // Glue code to fake cooperative threading which would be much nicer for this scenario ...
     class AsyncTask
     {
         public:
             AsyncTask(std::function<int ()> fun);
-            ~AsyncTask();
 
             void start();
+            void end();
 
             // Called from auxillary thread or similar.
             bool pull(std::string &msg);
@@ -93,7 +93,12 @@ namespace GLFFT
     int cli_main(
             const std::function<void* ()> &create_context,
             const std::function<void (void*)> &destroy_context,
-            int argc, char *argv[]) noexcept;
+            int argc, char *argv[])
+#ifndef GLFFT_CLI_ASYNC
+        noexcept;
+#else
+        ;
+#endif
 }
 
 #endif

@@ -180,9 +180,9 @@ JNIEXPORT jint JNICALL Java_net_themaister_glfft_Native_beginBenchTask
         "glfft_cli",
         "bench",
         "--width",
-        "1024",
+        "2048",
         "--height",
-        "1024",
+        "2048",
         "--fp16",
         nullptr,
     };
