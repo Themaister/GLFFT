@@ -21,7 +21,7 @@
 #include "glfft.hpp"
 #include <utility>
 
-#ifndef GLFFT_SERIALIZATION
+#ifdef GLFFT_SERIALIZATION
 #include "rapidjson/include/rapidjson/reader.h"
 #include "rapidjson/include/rapidjson/prettywriter.h"
 #include "rapidjson/include/rapidjson/stringbuffer.h"
@@ -39,9 +39,9 @@ FFTStaticWisdom FFTWisdom::get_static_wisdom_from_renderer(Context *context)
     const char *renderer = context->get_renderer_string();
     unsigned threads = context->get_max_work_group_threads();
 
-    if (strstr(renderer, "GeForce"))
+    if (strstr(renderer, "GeForce") || strstr(renderer, "Quadro"))
     {
-        context->log("Detected GeForce GPU.\n");
+        context->log("Detected GeForce/Quadro GPU.\n");
         res.min_workgroup_size = 32; // Warp threads.
         res.min_workgroup_size_shared = 32;
         res.max_workgroup_size = min(threads, 256u); // Very unlikely that more than 256 threads will do anything good.

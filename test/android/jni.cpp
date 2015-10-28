@@ -16,9 +16,10 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#include "glfft_interface.hpp"
+#include "glfft_gl_interface.hpp"
 #include "glfft_context.hpp"
 #include "glfft_cli.hpp"
+
 #include <GLES2/gl2ext.h>
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
@@ -27,16 +28,18 @@
 
 #include <memory>
 #include <vector>
+
+using namespace GLFFT;
 using namespace std;
 
-struct egl_ctx
+struct AndroidEGLContext : GLContext
 {
     EGLContext ctx = EGL_NO_CONTEXT;
     EGLSurface surf = EGL_NO_SURFACE;
     EGLDisplay dpy = EGL_NO_SURFACE;
     EGLConfig conf = 0;
 
-    ~egl_ctx()
+    ~AndroidEGLContext()
     {
         if (dpy)
         {
@@ -50,9 +53,9 @@ struct egl_ctx
     }
 };
 
-void *GLFFT::Context::create()
+unique_ptr<Context> GLFFT::create_cli_context()
 {
-    auto egl = unique_ptr<egl_ctx>(new egl_ctx);
+    unique_ptr<AndroidEGLContext> egl(new AndroidEGLContext);
 
     static const EGLint attr[] = {
         EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
@@ -80,7 +83,7 @@ void *GLFFT::Context::create()
     egl->dpy = eglGetDisplay(EGL_DEFAULT_DISPLAY);
     if (egl->dpy == EGL_NO_DISPLAY)
     {
-        glfft_log("Failed to create display.\n");
+        egl->log("Failed to create display.\n");
         return nullptr;
     }
     eglInitialize(egl->dpy, nullptr, nullptr);
@@ -89,27 +92,27 @@ void *GLFFT::Context::create()
     eglChooseConfig(egl->dpy, attr, &egl->conf, 1, &num_configs);
     if (num_configs != 1)
     {
-        glfft_log("Failed to get EGL config.\n");
+        egl->log("Failed to get EGL config.\n");
         return nullptr;
     }
 
     egl->ctx = eglCreateContext(egl->dpy, egl->conf, EGL_NO_CONTEXT, context_attr);
     if (egl->ctx == EGL_NO_CONTEXT)
     {
-        glfft_log("Failed to create GLES context.\n");
+        egl->log("Failed to create GLES context.\n");
         return nullptr;
     }
 
     egl->surf = eglCreatePbufferSurface(egl->dpy, egl->conf, surface_attr);
     if (egl->surf == EGL_NO_SURFACE)
     {
-        glfft_log("Failed to create Pbuffer surface.\n");
+        egl->log("Failed to create Pbuffer surface.\n");
         return nullptr;
     }
 
     if (!eglMakeCurrent(egl->dpy, egl->surf, egl->surf, egl->ctx))
     {
-        glfft_log("Failed to make EGL context current.\n");
+        egl->log("Failed to make EGL context current.\n");
         return nullptr;
     }
 
@@ -120,17 +123,14 @@ void *GLFFT::Context::create()
     unsigned ctx_version = major * 1000 + minor;
     if (ctx_version < 3001)
     {
-        glfft_log("OpenGL ES 3.1 not supported (got %u.%u context).\n",
+        egl->log("OpenGL ES 3.1 not supported (got %u.%u context).\n",
                 major, minor);
         return nullptr;
     }
 
-    return egl.release();
-}
+    egl->log("Version: %s\n", version);
 
-void GLFFT::Context::destroy(void *ptr)
-{
-    delete static_cast<egl_ctx*>(ptr);
+    return unique_ptr<Context>(move(egl));
 }
 
 void glfft_log(const char *fmt, ...)
@@ -152,8 +152,7 @@ static int start_task(const vector<const char*> &argv)
 {
     GLFFT::set_async_task([argv] {
             return GLFFT::cli_main(
-                GLFFT::Context::create,
-                GLFFT::Context::destroy,
+                GLFFT::get_async_context(),
                 argv.size() - 1, (char**)argv.data());
             });
 

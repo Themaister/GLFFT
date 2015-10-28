@@ -17,6 +17,7 @@
  */
 
 #include "glfft_cli.hpp"
+#include "glfft_context.hpp"
 #include "glfft.hpp"
 #include <cstdlib>
 #include <stdexcept>
@@ -475,26 +476,30 @@ int GLFFT::cli_main(
 }
 
 #ifdef GLFFT_CLI_ASYNC
-static AsyncTask* current_task;
+static unique_ptr<AsyncTask> current_task;
+static unique_ptr<Context> context;
 
 void GLFFT::set_async_task(std::function<int ()> fun)
 {
-    current_task = new AsyncTask(move(fun));
+    current_task = unique_ptr<AsyncTask>(new AsyncTask(move(fun)));
 }
 
 AsyncTask* GLFFT::get_async_task()
 {
-    return current_task;
+    return current_task.get();
+}
+
+Context* GLFFT::get_async_context()
+{
+    return context.get();
 }
 
 void GLFFT::end_async_task()
 {
     if (current_task)
-    {
         current_task->end();
-        delete current_task;
-        current_task = nullptr;
-    }
+    current_task.reset();
+    context.reset();
 }
 
 void GLFFT::check_async_cancel()
@@ -513,6 +518,7 @@ void AsyncTask::start()
     completed = false;
 
     task = thread([this] {
+        context = create_cli_context();
         try
         {
             int ret = fun();
@@ -523,6 +529,7 @@ void AsyncTask::start()
             context->log("GLFFT task was cancelled!\n");
             signal_completed(0);
         }
+        context.reset();
     });
 }
 

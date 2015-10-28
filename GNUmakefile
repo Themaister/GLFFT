@@ -39,15 +39,15 @@ ifeq ($(PLATFORM),win)
 endif
 
 ifeq ($(DEBUG_SANITIZE), 1)
-	CXXFLAGS += -O0 -g -fsanitize=memory -DGLFFT_GL_DEBUG
-	CFLAGS += -O0 -g -fsanitize=memory -DGLFFT_GL_DEBUG
+	CXXFLAGS += -O0 -gdwarf-2 -fsanitize=memory -DGLFFT_GL_DEBUG
+	CFLAGS += -O0 -gdwarf-2 -fsanitize=memory -DGLFFT_GL_DEBUG
 	LDFLAGS += -fsanitize=memory
 else ifeq ($(DEBUG), 1)
-	CXXFLAGS += -O0 -g -DGLFFT_GL_DEBUG
-	CFLAGS += -O0 -g -DGLFFT_GL_DEBUG
+	CXXFLAGS += -O0 -gdwarf-2 -DGLFFT_GL_DEBUG
+	CFLAGS += -O0 -gdwarf-2 -DGLFFT_GL_DEBUG
 else
-	CXXFLAGS += -Ofast -g
-	CFLAGS += -Ofast -g
+	CXXFLAGS += -Ofast -gdwarf-2
+	CFLAGS += -Ofast -gdwarf-2
 endif
 
 ifneq ($(TOOLCHAIN_PREFIX),)
@@ -61,7 +61,7 @@ OBJDIR := obj
 OBJECTS := $(addprefix $(OBJDIR)/,$(CXX_SOURCES:.cpp=.o)) $(addprefix $(OBJDIR)/,$(C_SOURCES:.c=.o))
 DEPS := $(OBJECTS:.o=.d)
 
-CXXFLAGS += -Wall -Wextra -pedantic -std=c++11 $(EXTERNAL_INCLUDE_DIRS)
+CXXFLAGS += -Wall -Wextra -pedantic -std=c++11 $(EXTERNAL_INCLUDE_DIRS) -DGLFFT_SERIALIZATION
 CFLAGS += -Wall -Wextra -std=c99 $(EXTERNAL_INCLUDE_DIRS)
 LDFLAGS += $(EXTERNAL_LIB_DIRS) -lm
 

@@ -85,10 +85,12 @@ namespace GLFFT
             void signal_completed(int status);
     };
 
+
     void set_async_task(std::function<int ()> fun);
     void end_async_task();
     void check_async_cancel();
     AsyncTask* get_async_task();
+    Context* get_async_context();
 #endif
 
     int cli_main(
