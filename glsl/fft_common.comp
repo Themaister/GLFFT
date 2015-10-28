@@ -20,6 +20,12 @@
 precision mediump float;
 #endif
 
+layout(std140, binding = 0) uniform UBO
+{
+    uvec4 p;
+    vec4 texture_offset_scale;
+} constant_data;
+
 // cfloat is the "generic" type used to hold complex data.
 // GLFFT supports vec2, vec4 and "vec8" for its complex data
 // to be able to work on 1, 2 and 4 complex values in a single vector.
@@ -243,8 +249,8 @@ precision highp sampler2D;
 #endif
 #endif
 
-layout(location = 1) uniform FFT_HIGHP vec2 uTexelOffset;
-layout(location = 2) uniform FFT_HIGHP vec2 uTexelScale;
+#define uTexelOffset constant_data.texture_offset_scale.xy
+#define uTexelScale constant_data.texture_offset_scale.zw
 
 layout(binding = 0) uniform sampler2D uTexture;
 #ifdef FFT_CONVOLVE

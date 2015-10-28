@@ -57,9 +57,8 @@ namespace GLFFT
 
         private:
             GLTexture(const void *initial_data,
-                    unsigned width, unsigned height, unsigned levels,
-                    Format format, WrapMode wrap_s, WrapMode wrap_t,
-                    Filter min_filter, Filter mag_filter);
+                    unsigned width, unsigned height,
+                    Format format);
             GLuint name;
     };
 
@@ -109,7 +108,13 @@ namespace GLFFT
     {
         public:
             ~GLCommandBuffer() = default;
-            GLCommandBuffer() = default;
+
+            void set_constant_data_buffers(const GLuint *ubos, unsigned count)
+            {
+                this->ubos = ubos;
+                ubo_index = 0;
+                ubo_count = count;
+            }
 
             void bind_program(Program *program) override;
             void bind_storage_texture(unsigned binding, Texture *texture, Format format) override;
@@ -123,17 +128,22 @@ namespace GLFFT
             void barrier(Texture *buffer) override;
             void barrier() override;
 
-            void uniform1ui(unsigned location, unsigned v) override;
-            void uniform2f(unsigned location, float v0, float v1) override;
+            void push_constant_data(unsigned binding, const void *data, size_t size) override;
+
+        private:
+            const GLuint *ubos = nullptr;
+            unsigned ubo_count = 0;
+            unsigned ubo_index = 0;
     };
 
     class GLContext : public Context
     {
         public:
+            ~GLContext();
+
             std::unique_ptr<Texture> create_texture(const void *initial_data,
-                    unsigned width, unsigned height, unsigned levels,
-                    Format format, WrapMode wrap_s, WrapMode wrap_t,
-                    Filter min_filter, Filter mag_filter) override;
+                    unsigned width, unsigned height,
+                    Format format) override;
 
             std::unique_ptr<Buffer> create_buffer(const void *initial_data, size_t size, AccessMode access) override;
             std::unique_ptr<Program> compile_compute_shader(const char *source) override;
@@ -157,27 +167,11 @@ namespace GLFFT
 
         private:
             static GLCommandBuffer static_command_buffer;
+
+            enum { MaxBuffersRing = 256 };
+            GLuint ubos[MaxBuffersRing];
+            bool initialized_ubos = false;
     };
-
-    static inline GLenum convert(WrapMode mode)
-    {
-        switch (mode)
-        {
-            case WrapClamp: return GL_CLAMP_TO_EDGE;
-            case WrapRepeat: return GL_REPEAT;
-        }
-        return 0;
-    }
-
-    static inline GLenum convert(Filter filter)
-    {
-        switch (filter)
-        {
-            case FilterLinear: return GL_LINEAR;
-            case FilterNearest: return GL_NEAREST;
-        }
-        return 0;
-    }
 
     static inline GLenum convert(AccessMode mode)
     {

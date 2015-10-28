@@ -17,7 +17,8 @@
  */
 
 #include "glfft_gl_interface.hpp"
-#include <stdarg.h>
+#include <cstdarg>
+#include <cstring>
 #include <vector>
 
 using namespace GLFFT;
@@ -77,18 +78,36 @@ void GLCommandBuffer::barrier()
     glMemoryBarrier(GL_ALL_BARRIER_BITS);
 }
 
-void GLCommandBuffer::uniform1ui(unsigned location, unsigned value)
+void GLCommandBuffer::push_constant_data(unsigned binding, const void *data, size_t size)
 {
-    glUniform1ui(location, value);
-}
+    glBindBufferBase(GL_UNIFORM_BUFFER, binding, ubos[ubo_index]);
+    void *ptr = glMapBufferRange(GL_UNIFORM_BUFFER,
+            0, CommandBuffer::MaxConstantDataSize,
+            GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT);
 
-void GLCommandBuffer::uniform2f(unsigned location, float v0, float v1)
-{
-    glUniform2f(location, v0, v1);
+    if (ptr)
+    {
+        std::memcpy(ptr, data, size);
+        glUnmapBuffer(GL_UNIFORM_BUFFER);
+    }
+
+    if (++ubo_index >= ubo_count)
+        ubo_index = 0;
 }
 
 CommandBuffer* GLContext::request_command_buffer()
 {
+    if (!initialized_ubos)
+    {
+        glGenBuffers(MaxBuffersRing, ubos);
+        for (auto &ubo : ubos)
+        {
+            glBindBuffer(GL_UNIFORM_BUFFER, ubo);
+            glBufferData(GL_UNIFORM_BUFFER, CommandBuffer::MaxConstantDataSize, nullptr, GL_STREAM_DRAW);
+        }
+        static_command_buffer.set_constant_data_buffers(ubos, MaxBuffersRing);
+        initialized_ubos = true;
+    }
     return &static_command_buffer;
 }
 
@@ -101,11 +120,10 @@ void GLContext::wait_idle()
 }
 
 unique_ptr<Texture> GLContext::create_texture(const void *initial_data,
-        unsigned width, unsigned height, unsigned levels,
-        Format format, WrapMode wrap_s, WrapMode wrap_t,
-        Filter min_filter, Filter mag_filter)
+        unsigned width, unsigned height,
+        Format format)
 {
-    return unique_ptr<Texture>(new GLTexture(initial_data, width, height, levels, format, wrap_s, wrap_t, min_filter, mag_filter));
+    return unique_ptr<Texture>(new GLTexture(initial_data, width, height, format));
 }
 
 unique_ptr<Buffer> GLContext::create_buffer(const void *initial_data, size_t size, AccessMode access)
@@ -209,18 +227,23 @@ void GLContext::unmap(Buffer *buffer)
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 }
 
+GLContext::~GLContext()
+{
+    // The backing context has already died, so no need to free GL resources manually.
+    //glDeleteBuffers(MaxBuffersRing, ubos);
+}
+
 GLTexture::GLTexture(const void *initial_data,
-        unsigned width, unsigned height, unsigned levels,
-        Format format, WrapMode wrap_s, WrapMode wrap_t,
-        Filter min_filter, Filter mag_filter)
+        unsigned width, unsigned height,
+        Format format)
 {
     glGenTextures(1, &name);
     glBindTexture(GL_TEXTURE_2D, name);
-    glTexStorage2D(GL_TEXTURE_2D, levels, convert(format), width, height);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, convert(wrap_s));
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, convert(wrap_t));
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, convert(min_filter));
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, convert(mag_filter));
+    glTexStorage2D(GL_TEXTURE_2D, 1, convert(format), width, height);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 
     if (initial_data)
     {

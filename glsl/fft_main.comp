@@ -21,7 +21,7 @@
 // Used to compute twiddle factors.
 
 #ifndef FFT_P1
-layout(location = 0) uniform uint uP;
+#define uP constant_data.p.x
 #endif
 
 #if FFT_RADIX == 4

@@ -242,8 +242,7 @@ static void run_benchmark(Context *context, const BenchArguments &args)
                 break;
         }
 
-        input = context->create_texture(nullptr, args.width, args.height, 1, format,
-                WrapClamp, WrapClamp, FilterNearest, FilterNearest);
+        input = context->create_texture(nullptr, args.width, args.height, format);
     }
     else
     {
@@ -274,8 +273,7 @@ static void run_benchmark(Context *context, const BenchArguments &args)
                 break;
         }
 
-        output = context->create_texture(nullptr, args.width, args.height, 1, format,
-                WrapClamp, WrapClamp, FilterNearest, FilterNearest);
+        output = context->create_texture(nullptr, args.width, args.height, format);
     }
     else
     {
@@ -499,7 +497,6 @@ void GLFFT::end_async_task()
     if (current_task)
         current_task->end();
     current_task.reset();
-    context.reset();
 }
 
 void GLFFT::check_async_cancel()

@@ -64,18 +64,6 @@ namespace GLFFT
         FormatR32Uint
     };
 
-    enum Filter
-    {
-        FilterLinear,
-        FilterNearest
-    };
-
-    enum WrapMode
-    {
-        WrapClamp,
-        WrapRepeat
-    };
-
     class CommandBuffer;
 
     class Context
@@ -84,9 +72,9 @@ namespace GLFFT
             virtual ~Context() = default;
 
             virtual std::unique_ptr<Texture> create_texture(const void *initial_data,
-                    unsigned width, unsigned height, unsigned levels,
-                    Format format, WrapMode wrap_s, WrapMode wrap_t,
-                    Filter min_filter, Filter mag_filter) = 0;
+                    unsigned width, unsigned height,
+                    Format format) = 0;
+
             virtual std::unique_ptr<Buffer> create_buffer(const void *initial_data, size_t size, AccessMode access) = 0;
             virtual std::unique_ptr<Program> compile_compute_shader(const char *source) = 0;
 
@@ -127,8 +115,8 @@ namespace GLFFT
             virtual void barrier(Texture *buffer) = 0;
             virtual void barrier() = 0;
 
-            virtual void uniform1ui(unsigned location, unsigned v) = 0;
-            virtual void uniform2f(unsigned location, float v0, float v1) = 0;
+            enum { MaxConstantDataSize = 64 };
+            virtual void push_constant_data(unsigned binding, const void *data, size_t size) = 0;
 
         protected:
             CommandBuffer() = default;

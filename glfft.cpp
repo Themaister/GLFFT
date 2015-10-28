@@ -1018,6 +1018,15 @@ void FFT::process(CommandBuffer *cmd, Resource *output, Resource *input, Resourc
     Program *current_program = nullptr;
     unsigned p = 1;
     unsigned pass_index = 0;
+
+    struct FFTConstantData
+    {
+        uint32_t p;
+        uint32_t padding[3];
+        float offset_x, offset_y;
+        float scale_x, scale_y;
+    };
+
     for (auto &pass : passes)
     {
         if (pass.program != current_program)
@@ -1030,11 +1039,9 @@ void FFT::process(CommandBuffer *cmd, Resource *output, Resource *input, Resourc
         {
             p = 1;
         }
-        else
-        {
-            cmd->uniform1ui(0, p);
-        }
 
+        FFTConstantData constant_data;
+        constant_data.p = p;
         p *= pass.parameters.radix;
 
         if (pass.parameters.input_target != SSBO)
@@ -1045,8 +1052,10 @@ void FFT::process(CommandBuffer *cmd, Resource *output, Resource *input, Resourc
             // If one compute thread reads multiple texels in X dimension, scale this accordingly.
             float scale_x = texture.scale_x * pass.uv_scale_x;
 
-            cmd->uniform2f(1, texture.offset_x, texture.offset_y);
-            cmd->uniform2f(2, scale_x, texture.scale_y);
+            constant_data.offset_x = texture.offset_x;
+            constant_data.offset_y = texture.offset_y;
+            constant_data.scale_x = scale_x;
+            constant_data.scale_y = texture.scale_y;
         }
         else
         {
@@ -1109,6 +1118,7 @@ void FFT::process(CommandBuffer *cmd, Resource *output, Resource *input, Resourc
             }
         }
 
+        cmd->push_constant_data(0, &constant_data, sizeof(constant_data));
         cmd->dispatch(pass.workgroups_x, pass.workgroups_y, 1);
 
         // For last pass, we don't know how our resource will be used afterwards,

@@ -578,8 +578,7 @@ static void run_test_texture(Context *context,
             break;
     }
 
-    test_input = context->create_texture(input.get(), Nx, Ny, 1, format,
-            WrapClamp, WrapClamp, FilterNearest, FilterNearest);
+    test_input = context->create_texture(input.get(), Nx, Ny, format);
 
     test_output = context->create_buffer(nullptr, output_size >> options.type.output_fp16, AccessStreamRead);
 
@@ -679,8 +678,7 @@ static void run_test_image(Context *context, const TestSuiteArguments &args, uns
 
     // Upload a blank buffer to make debugging easier.
     vector<float> blank(Nx * Ny * components * sizeof(float));
-    unique_ptr<Texture> tex = context->create_texture(blank.data(), Nx, Ny, 1, format,
-            WrapClamp, WrapClamp, FilterNearest, FilterNearest);
+    unique_ptr<Texture> tex = context->create_texture(blank.data(), Nx, Ny, format);
 
     FFT fft(context, Nx, Ny, type, direction, SSBO, type != ComplexToReal ? Image : ImageReal, cache, options);
 
