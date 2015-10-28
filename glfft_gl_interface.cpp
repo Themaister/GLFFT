@@ -17,6 +17,7 @@
  */
 
 #include "glfft_gl_interface.hpp"
+#include "glfft_validate.hpp"
 #include <cstdarg>
 #include <cstring>
 #include <vector>
@@ -133,6 +134,11 @@ unique_ptr<Buffer> GLContext::create_buffer(const void *initial_data, size_t siz
 
 unique_ptr<Program> GLContext::compile_compute_shader(const char *source)
 {
+#ifdef GLFFT_GL_DEBUG
+    //if (!validate_glsl_source(source))
+    //    return nullptr;
+#endif
+
     GLuint program = glCreateProgram();
     if (!program)
     {

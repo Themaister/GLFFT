@@ -124,7 +124,7 @@ void FFT8_p1_horiz(uvec2 i)
 void FFT8_p1_vert(uvec2 i)
 {
     uvec2 octa_samples = gl_NumWorkGroups.xy * gl_WorkGroupSize.xy;
-    uint stride = get_stride(octa_samples.x);
+    uint stride = uStride;
     uint y_stride = stride * octa_samples.y;
     uint offset = stride * i.y;
 
@@ -205,7 +205,7 @@ void FFT8_horiz(uvec2 i, uint p)
 void FFT8_vert(uvec2 i, uint p)
 {
     uvec2 octa_samples = gl_NumWorkGroups.xy * gl_WorkGroupSize.xy;
-    uint stride = get_stride(octa_samples.x);
+    uint stride = uStride;
     uint y_stride = stride * octa_samples.y;
     uint offset = stride * i.y;
 

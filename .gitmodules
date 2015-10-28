@@ -4,3 +4,6 @@
 [submodule "muFFT"]
 	path = muFFT
 	url = git://github.com/Themaister/muFFT
+[submodule "glslang"]
+	path = glslang
+	url = git://github.com/KhronosGroup/glslang

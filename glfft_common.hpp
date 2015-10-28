@@ -93,7 +93,6 @@ struct Parameters
     Target input_target;
     Target output_target;
     bool p1;
-    bool pow2_stride;
     bool shared_banked;
     bool fft_fp16, input_fp16, output_fp16;
     bool fft_normalize;

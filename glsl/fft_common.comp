@@ -22,9 +22,10 @@ precision mediump float;
 
 layout(std140, binding = 0) uniform UBO
 {
-    uvec4 p;
+    uvec4 p_stride_padding;
     vec4 texture_offset_scale;
 } constant_data;
+#define uStride constant_data.p_stride_padding.y
 
 // cfloat is the "generic" type used to hold complex data.
 // GLFFT supports vec2, vec4 and "vec8" for its complex data
@@ -830,21 +831,4 @@ void FFT_complex_to_real(uvec2 i)
     store_global(offset + i.x, even + odd);
 }
 #endif
-
-// For vertical transforms with real-to-complex and complex-to-real,
-// our transform space is N / 2 + 1, but we pad the arrays to N anways to avoid weird,
-// unaligned strides.
-uint next_pow2(uint x)
-{
-    return 1u << uint(findMSB(x - 1u) + 1);
-}
-
-uint get_stride(uint samples)
-{
-#ifdef FFT_POW2_STRIDE
-    return next_pow2(samples);
-#else
-    return samples;
-#endif
-}
 

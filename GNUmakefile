@@ -28,9 +28,6 @@ ifeq ($(BACKEND), glfw)
 		LDFLAGS += -lmufft $(shell pkg-config glfw3 --libs) -lGL
 	endif
 	GLSYM := test/glfw/glsym/rglgen.c test/glfw/glsym/glsym_gl.c
-
-	CC = clang
-	CXX = clang++
 endif
 
 ifeq ($(PLATFORM),win)
@@ -55,6 +52,37 @@ ifneq ($(TOOLCHAIN_PREFIX),)
 	CXX = $(TOOLCHAIN_PREFIX)g++
 endif
 
+GLSLANG_YACC := glslang/glslang/MachineIndependent/glslang.y
+GLSLANG_YACC_TAB := glslang/glslang_tab.cpp
+GLSLANG_YACC_TAB_INCLUDE := glslang/glslang_tab.cpp.h
+GLSLANG_SOURCES := \
+	$(wildcard glslang/SPIRV/*.cpp) \
+	$(wildcard glslang/glslang/GenericCodeGen/*.cpp) \
+	$(wildcard glslang/OGLCompilersDLL/*.cpp) \
+	$(wildcard glslang/glslang/MachineIndependent/*.cpp) \
+	$(wildcard glslang/glslang/MachineIndependent/preprocessor/*.cpp) \
+	$(wildcard glslang/glslang/OSDependent/Linux/*.cpp) \
+	$(GLSLANG_YACC_TAB)
+
+GLSLANG_OBJECTS := $(GLSLANG_SOURCES:.cpp=.o)
+GLSLANG_LIB := libglslang.a
+CXXFLAGS += -Iglslang/glslang/OSDependent/Linux \
+			-Iglslang \
+			-Iglslang/glslang/MachineIndependent \
+			-Iglslang/glslang/Public \
+			-Iglslang/SPIRV
+
+LDFLAGS += -pthread
+
+all: $(GLSLANG_YACC_TAB) build_fft_inc
+	@+$(MAKE) $(TARGET)
+
+$(GLSLANG_LIB): $(GLSLANG_OBJECTS)
+	$(AR) rcs $@ $(GLSLANG_OBJECTS)
+
+$(GLSLANG_YACC_TAB): $(GLSLANG_YACC)
+	bison --defines=$(GLSLANG_YACC_TAB_INCLUDE) -t $(GLSLANG_YACC) -o $(GLSLANG_YACC_TAB)
+
 CXX_SOURCES := $(wildcard *.cpp) $(wildcard test/*.cpp) $(wildcard test/$(BACKEND)/*.cpp)
 C_SOURCES := $(GLSYM)
 OBJDIR := obj
@@ -65,11 +93,6 @@ CXXFLAGS += -Wall -Wextra -pedantic -std=c++11 $(EXTERNAL_INCLUDE_DIRS) -DGLFFT_
 CFLAGS += -Wall -Wextra -std=c99 $(EXTERNAL_INCLUDE_DIRS)
 LDFLAGS += $(EXTERNAL_LIB_DIRS) -lm
 
-
-all: $(TARGET)
-
-glfft.cpp: build_fft_inc
-
 build_fft_inc:
 	$(MAKE) -C glsl
 
@@ -78,8 +101,8 @@ build_fft_inc:
 muFFT/libmufft.a:
 	$(MAKE) -C muFFT static PLATFORM=$(PLATFORM) TOOLCHAIN_PREFIX=$(TOOLCHAIN_PREFIX)
 
-$(TARGET): $(OBJECTS) $(MUFFT_LIB)
-	$(CXX) -o $@ $(OBJECTS) $(LDFLAGS) $(EXTERNAL_LIBS)
+$(TARGET): $(OBJECTS) $(MUFFT_LIB) $(GLSLANG_LIB)
+	$(CXX) -o $@ $(OBJECTS) $(LDFLAGS) $(EXTERNAL_LIBS) $(GLSLANG_LIB)
 
 $(OBJDIR)/%.o: %.cpp
 	@mkdir -p $(dir $@)
@@ -94,5 +117,8 @@ clean:
 	$(MAKE) -C muFFT clean PLATFORM=$(PLATFORM)
 	$(MAKE) -C glsl clean
 	rm -f muFFT/libmufft.a
+	rm -f $(GLSLANG_LIB)
+	rm -f $(GLSLANG_YACC_TAB)
+	rm -f $(GLSLANG_YACC_TAB_INCLUDE)
 
 .PHONY: clean

@@ -21,7 +21,7 @@
 // Used to compute twiddle factors.
 
 #ifndef FFT_P1
-#define uP constant_data.p.x
+#define uP constant_data.p_stride_padding.x
 #endif
 
 #if FFT_RADIX == 4

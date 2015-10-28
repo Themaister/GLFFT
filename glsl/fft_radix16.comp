@@ -113,7 +113,7 @@ void FFT16_horiz(uvec2 i, uint p)
 void FFT16_p1_vert(uvec2 i)
 {
     uvec2 quarter_samples = gl_NumWorkGroups.xy * gl_WorkGroupSize.xy;
-    uint stride = get_stride(quarter_samples.x);
+    uint stride = uStride;
     uint y_stride = stride * quarter_samples.y;
     uint offset = stride * i.y;
 
@@ -151,7 +151,7 @@ void FFT16_p1_vert(uvec2 i)
 void FFT16_vert(uvec2 i, uint p)
 {
     uvec2 quarter_samples = gl_NumWorkGroups.xy * gl_WorkGroupSize.xy;
-    uint stride = get_stride(quarter_samples.x);
+    uint stride = uStride;
     uint y_stride = stride * quarter_samples.y;
     uint offset = stride * i.y;
 

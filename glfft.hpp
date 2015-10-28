@@ -186,6 +186,7 @@ class FFT
             unsigned workgroups_x;
             unsigned workgroups_y;
             unsigned uv_scale_x;
+            unsigned stride;
             Program *program;
         };
 

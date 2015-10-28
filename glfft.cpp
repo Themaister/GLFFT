@@ -56,6 +56,17 @@ struct Radix
     bool shared_banked;
 };
 
+static unsigned next_pow2(unsigned v)
+{
+    v--;
+    v |= v >> 16;
+    v |= v >> 8;
+    v |= v >> 4;
+    v |= v >> 2;
+    v |= v >> 1;
+    return v + 1;
+}
+
 static void reduce(unsigned &wg_size, unsigned &divisor)
 {
     if (divisor > 1 && wg_size >= divisor)
@@ -427,7 +438,6 @@ FFT::FFT(Context *context, unsigned Nx, unsigned Ny,
         input_target,
         output_target,
         p == 1,
-        false,
         res.shared_banked,
         options.type.fp16, options.type.input_fp16, options.type.output_fp16,
         options.type.normalize,
@@ -443,6 +453,7 @@ FFT::FFT(Context *context, unsigned Nx, unsigned Ny,
         params,
         res.num_workgroups_x, res.num_workgroups_y,
         uv_scale_x,
+        next_pow2(res.num_workgroups_x * params.workgroup_size_x),
         get_program(params),
     };
 
@@ -596,10 +607,6 @@ FFT::FFT(Context *context, unsigned Nx, unsigned Ny,
         unsigned p = 1;
         unsigned i = 0;
         
-        // If we have R2C or C2R, we have a padded buffer to accomodate 2^n + 1 elements horizontally.
-        // For simplicity, this is implemented as a shader variant.
-        bool pow2_stride = expand && modes[index] == Vertical;
-
         for (auto &radix : radix_direction)
         {
             // If this is the last pass and we're writing to an image, use a special shader variant.
@@ -622,7 +629,6 @@ FFT::FFT(Context *context, unsigned Nx, unsigned Ny,
                 in_target,
                 out_target,
                 p == 1,
-                pow2_stride,
                 radix.shared_banked,
                 options.type.fp16, input_fp16, options.type.output_fp16,
                 options.type.normalize,
@@ -632,6 +638,7 @@ FFT::FFT(Context *context, unsigned Nx, unsigned Ny,
                 params,
                 radix.num_workgroups_x, radix.num_workgroups_y,
                 uv_scale_x,
+                next_pow2(radix.num_workgroups_x * params.workgroup_size_x),
                 get_program(params),
             };
 
@@ -671,7 +678,6 @@ FFT::FFT(Context *context, unsigned Nx, unsigned Ny,
                 out_target,
                 true,
                 false,
-                false,
                 base_opts.type.fp16, base_opts.type.input_fp16, base_opts.type.output_fp16,
                 base_opts.type.normalize,
             };
@@ -681,6 +687,7 @@ FFT::FFT(Context *context, unsigned Nx, unsigned Ny,
                 Nx / res.size.x,
                 Ny / res.size.y,
                 uv_scale_x,
+                next_pow2(Nx),
                 get_program(params),
             };
 
@@ -726,7 +733,6 @@ unique_ptr<Program> FFT::build_program(const Parameters &params)
             "   Mode:      %u\n"
             "   InTarget:  %u\n"
             "   OutTarget: %u\n"
-            "   POW2:      %u\n"
             "   FP16:      %u\n"
             "   InFP16:    %u\n"
             "   OutFP16:   %u\n"
@@ -740,7 +746,6 @@ unique_ptr<Program> FFT::build_program(const Parameters &params)
             params.mode,
             params.input_target,
             params.output_target,
-            params.pow2_stride,
             params.fft_fp16,
             params.input_fp16,
             params.output_fp16,
@@ -750,11 +755,6 @@ unique_ptr<Program> FFT::build_program(const Parameters &params)
     if (params.p1)
     {
         str += "#define FFT_P1\n";
-    }
-
-    if (params.pow2_stride)
-    {
-        str += "#define FFT_POW2_STRIDE\n";
     }
 
     if (params.fft_fp16)
@@ -1022,7 +1022,8 @@ void FFT::process(CommandBuffer *cmd, Resource *output, Resource *input, Resourc
     struct FFTConstantData
     {
         uint32_t p;
-        uint32_t padding[3];
+        uint32_t stride;
+        uint32_t padding[2];
         float offset_x, offset_y;
         float scale_x, scale_y;
     };
@@ -1042,6 +1043,7 @@ void FFT::process(CommandBuffer *cmd, Resource *output, Resource *input, Resourc
 
         FFTConstantData constant_data;
         constant_data.p = p;
+        constant_data.stride = pass.stride;
         p *= pass.parameters.radix;
 
         if (pass.parameters.input_target != SSBO)
@@ -1125,7 +1127,7 @@ void FFT::process(CommandBuffer *cmd, Resource *output, Resource *input, Resourc
         // so let barrier decisions be up to the API user.
         if (pass_index + 1 < passes.size())
         {
-            cmd->barrier(static_cast<Buffer*>(buffers[0]));
+            cmd->barrier(static_cast<Buffer*>(buffers[1]));
         }
 
         if (pass_index == 0)
