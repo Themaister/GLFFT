@@ -21,34 +21,7 @@
 using namespace std;
 using namespace GLFFT;
 
-Texture::~Texture()
-{
-    if (name)
-    {
-        glDeleteTextures(1, &name);
-    }
-}
-
-Texture::Texture(GLuint tex)
-    : name(tex)
-{}
-
-void Texture::init(unsigned width, unsigned height, unsigned levels, GLenum internal_format,
-        GLenum wrap_s, GLenum wrap_t, GLenum min_filter, GLenum mag_filter)
-{
-    if (name)
-    {
-        glDeleteTextures(1, &name);
-    }
-    glGenTextures(1, &name);
-    glBindTexture(GL_TEXTURE_2D, name);
-    glTexStorage2D(GL_TEXTURE_2D, levels, internal_format, width, height);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, wrap_s);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, wrap_t);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, min_filter);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, mag_filter);
-    glBindTexture(GL_TEXTURE_2D, 0);
-}
+#if 0
 
 void Texture::upload(const void *data, GLenum format, GLenum type,
         unsigned x_off, unsigned y_off, unsigned width, unsigned height)
@@ -82,48 +55,6 @@ Texture::Texture(Texture &&texture) noexcept
     *this = move(texture);
 }
 
-Buffer::~Buffer()
-{
-    if (name)
-    {
-        glDeleteBuffers(1, &name);
-    }
-}
-
-Buffer::Buffer(GLuint buffer)
-    : name(buffer)
-{}
-
-void Buffer::init(const void *data, size_t size, GLenum access)
-{
-    if (name)
-    {
-        glDeleteBuffers(1, &name);
-    }
-    glGenBuffers(1, &name);
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, name);
-    glBufferData(GL_SHADER_STORAGE_BUFFER, size, data, access);
-}
-
-Buffer& Buffer::operator=(Buffer &&buffer) noexcept
-{
-    if (this != &buffer)
-    {
-        if (name)
-        {
-            glDeleteBuffers(1, &name);
-        }
-        name = buffer.name;
-        buffer.name = 0;
-    }
-    return *this;
-}
-
-Buffer::Buffer(Buffer &&buffer) noexcept
-{
-    *this = move(buffer);
-}
-
 Program::Program(GLuint prog)
     : name(prog)
 {}
@@ -154,4 +85,5 @@ Program::Program(Program &&prog) noexcept
 {
     *this = move(prog);
 }
+#endif
 

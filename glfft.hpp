@@ -19,6 +19,7 @@
 #ifndef GLFFT_HPP__
 #define GLFFT_HPP__
 
+#include "glfft_interface.hpp"
 #include "glfft_common.hpp"
 #include "glfft_wisdom.hpp"
 #include <vector>
@@ -41,6 +42,7 @@ class FFT
         /// All buffer allocation done by GLFFT will be done in constructor.
         /// Will throw if invalid parameters are passed.
         ///
+        /// @param context       The graphics context.
         /// @param Nx            Number of samples in horizontal dimension.
         /// @param Ny            Number of samples in vertical dimension.
         /// @param type          The transform type.
@@ -53,7 +55,7 @@ class FFT
         /// @param options       FFT options such as performance related parameters and types.
         /// @param wisdom        GLFFT wisdom which can override performance related options
         ///                      (options.performance is used as a fallback).
-        FFT(unsigned Nx, unsigned Ny,
+        FFT(Context *context, unsigned Nx, unsigned Ny,
                 Type type, Direction direction, Target input_target, Target output_target,
                 std::shared_ptr<ProgramCache> cache, const FFTOptions &options,
                 const FFTWisdom &wisdom = FFTWisdom());
@@ -63,6 +65,7 @@ class FFT
         /// All buffer allocation done by GLFFT will be done in constructor.
         /// Will throw if invalid parameters are passed.
         ///
+        /// @param context       The graphics context.
         /// @param Nx            Number of samples in horizontal dimension.
         /// @param Ny            Number of samples in vertical dimension.
         /// @param radix         FFT radix to test.
@@ -72,7 +75,7 @@ class FFT
         /// @param output_target GL object type of output target. For complex-to-real with texture as output, ImageReal is used.
         /// @param cache         A program cache for caching the GLFFT programs created.
         /// @param options       FFT options such as performance related parameters and types.
-        FFT(unsigned Nx, unsigned Ny, unsigned radix, unsigned p,
+        FFT(Context *context, unsigned Nx, unsigned Ny, unsigned radix, unsigned p,
                 Mode mode, Target input_target, Target output_target,
                 std::shared_ptr<ProgramCache> cache, const FFTOptions &options);
 
@@ -80,17 +83,19 @@ class FFT
         ///
         /// The type of object passed here must match what FFT was initialized with.
         ///
+        /// @param cmd       Command buffer for issuing dispatch commands.
         /// @param output    Output buffer or image.
         ///                  NOTE: For images, the texture must be using immutable storage, i.e. glTexStorage2D!
         /// @param input     Input buffer or texture.
         /// @param input_aux If using convolution transform type,
         ///                  the content of input and input_aux will be multiplied together.
-        void process(GLuint output, GLuint input, GLuint input_aux = 0);
+        void process(CommandBuffer *cmd, Resource *output, Resource *input, Resource *input_aux = nullptr);
 
         /// @brief Run process() multiple times, timing the results.
         ///
         /// Mostly used internally by GLFFT wisdom, glfft_cli's bench, and so on.
         ///
+        /// @param context                  The graphics context.
         /// @param output                   Output buffer or image.
         ///                                 NOTE: For images, the texture must be using immutable storage, i.e. glTexStorage2D!
         /// @param input                    Input buffer or texture.
@@ -102,7 +107,7 @@ class FFT
         /// @param max_time                 The max time the benchmark should run. Will be checked after each iteration is complete.
         ///
         /// @returns Average GPU time per process() call.
-        double bench(GLuint output, GLuint input,
+        double bench(Context *context, Resource *output, Resource *input,
                 unsigned warmup_iterations, unsigned iterations, unsigned dispatches_per_iteration,
                 double max_time = std::numeric_limits<double>::max());
 
@@ -135,7 +140,7 @@ class FFT
         ///
         /// If input is an SSBO, set a custom binding range to be passed to glBindBufferRange.
         /// By default, the entire buffer is bound.
-        void set_input_buffer_range(GLintptr offset, GLsizei size)
+        void set_input_buffer_range(size_t offset, size_t size)
         {
             ssbo.input.offset = offset;
             ssbo.input.size = size;
@@ -145,7 +150,7 @@ class FFT
         ///
         /// If input_aux is an SSBO, set a custom binding range to be passed to glBindBufferRange.
         /// By default, the entire buffer is bound.
-        void set_input_aux_buffer_range(GLintptr offset, GLsizei size)
+        void set_input_aux_buffer_range(size_t offset, size_t size)
         {
             ssbo.input_aux.offset = offset;
             ssbo.input_aux.size = size;
@@ -155,7 +160,7 @@ class FFT
         ///
         /// If output buffer is an SSBO, set a custom binding range to be passed to glBindBufferRange.
         /// By default, the entire buffer is bound.
-        void set_output_buffer_range(GLintptr offset, GLsizei size)
+        void set_output_buffer_range(size_t offset, size_t size)
         {
             ssbo.output.offset = offset;
             ssbo.output.size = size;
@@ -165,13 +170,15 @@ class FFT
         ///
         /// Set sampler objects to be used for input and input_aux if textures are used as input.
         /// By default, sampler object 0 will be used (inheriting sampler parameters from the texture object itself).
-        void set_samplers(GLuint sampler0, GLuint sampler1 = 0)
+        void set_samplers(Sampler *sampler0, Sampler *sampler1 = nullptr)
         {
             texture.samplers[0] = sampler0;
             texture.samplers[1] = sampler1;
         }
 
     private:
+        Context *context;
+
         struct Pass
         {
             Parameters parameters;
@@ -179,36 +186,34 @@ class FFT
             unsigned workgroups_x;
             unsigned workgroups_y;
             unsigned uv_scale_x;
-            GLuint program;
-            GLbitfield barriers;
+            Program *program;
         };
 
         double cost = 0.0;
 
-        Buffer temp_buffer;
-        Buffer temp_buffer_image;
+        std::unique_ptr<Buffer> temp_buffer;
+        std::unique_ptr<Buffer> temp_buffer_image;
         std::vector<Pass> passes;
         std::shared_ptr<ProgramCache> cache;
 
-        GLuint build_program(const Parameters &params);
-        GLuint compile_compute_shader(const char *src);
+        std::unique_ptr<Program> build_program(const Parameters &params);
         static std::string load_shader_string(const char *path);
         static void store_shader_string(const char *path, const std::string &source);
 
-        GLuint get_program(const Parameters &params);
+        Program* get_program(const Parameters &params);
 
         struct
         {
             float offset_x = 0.0f, offset_y = 0.0f, scale_x = 1.0f, scale_y = 1.0f;
-            GLuint samplers[2] = { 0, 0 };
+            Sampler *samplers[2] = { nullptr, nullptr };
         } texture;
 
         struct
         {
             struct
             {
-                GLintptr offset = 0;
-                GLsizei size = 0;
+                size_t offset = 0;
+                size_t size = 0;
             } input, input_aux, output;
         } ssbo;
         unsigned size_x, size_y;

@@ -21,13 +21,7 @@
 
 namespace GLFFT
 {
-namespace Context
-{
-
-void *create();
-void destroy(void *priv);
-
-}
+    std::unique_ptr<Context> create_cli_context();
 }
 
 #endif

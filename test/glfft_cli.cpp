@@ -201,7 +201,7 @@ static double get_estimated_bw_per_pass(unsigned width, unsigned height, Type ty
     return bw;
 }
 
-static void run_benchmark(const BenchArguments &args)
+static void run_benchmark(Context *context, const BenchArguments &args)
 {
     auto cache = make_shared<ProgramCache>();
 
@@ -210,12 +210,8 @@ static void run_benchmark(const BenchArguments &args)
     options.type.output_fp16 = args.fp16;
     options.type.fp16 = args.fp16;
 
-    Buffer input;
-    Buffer output;
-    Texture input_tex;
-    Texture output_tex;
-    GLuint input_name = 0;
-    GLuint output_name = 0;
+    unique_ptr<Resource> output;
+    unique_ptr<Resource> input;
 
     Target input_target = SSBO;
     Target output_target = SSBO;
@@ -224,115 +220,114 @@ static void run_benchmark(const BenchArguments &args)
 
     if (args.input_texture)
     {
-        GLenum internal_format = 0;
+        Format format = FormatUnknown;
 
         switch (args.type)
         {
             case ComplexToComplexDual:
-                internal_format = GL_RGBA32F;
+                format = FormatR32G32B32A32Float;
                 input_target = Image;
                 break;
 
             case ComplexToComplex:
             case ComplexToReal:
-                internal_format = GL_RG32F;
+                format = FormatR32G32Float;
                 input_target = Image;
                 break;
 
             case RealToComplex:
-                internal_format = GL_R32F;
+                format = FormatR32Float;
                 input_target = ImageReal;
                 break;
         }
 
-        input_tex.init(args.width, args.height, 1, internal_format);
-        input_name = input_tex.get();
+        input = context->create_texture(nullptr, args.width, args.height, 1, format,
+                WrapClamp, WrapClamp, FilterNearest, FilterNearest);
     }
     else
     {
-        vector<float> tmp(buffer_size / sizeof(float));
-        input.init(tmp.data(), buffer_size, GL_STATIC_COPY);
-        input_name = input.get();
+        vector<uint8_t> tmp(buffer_size);
+        input = context->create_buffer(tmp.data(), buffer_size, AccessStaticCopy);
     }
 
     if (args.output_texture)
     {
-        GLenum internal_format = 0;
+        Format format = FormatUnknown;
 
         switch (args.type)
         {
             case ComplexToComplexDual:
-                internal_format = GL_RGBA16F;
+                format = FormatR16G16B16A16Float;
                 output_target = Image;
                 break;
 
             case ComplexToComplex:
             case RealToComplex:
-                internal_format = GL_RG16F;
+                format = FormatR16G16Float;
                 output_target = Image;
                 break;
 
             case ComplexToReal:
-                internal_format = GL_R32F;
+                format = FormatR32Float;
                 output_target = ImageReal;
                 break;
         }
-        output_tex.init(args.width, args.height, 1, internal_format);
-        output_name = output_tex.get();
+
+        output = context->create_texture(nullptr, args.width, args.height, 1, format,
+                WrapClamp, WrapClamp, FilterNearest, FilterNearest);
     }
     else
     {
-        output.init(nullptr, buffer_size, GL_STREAM_COPY);
-        output_name = output.get();
+        output = context->create_buffer(nullptr, buffer_size, AccessStreamCopy);
     }
 
     FFTWisdom wisdom;
-    wisdom.set_static_wisdom(FFTWisdom::get_static_wisdom_from_renderer(reinterpret_cast<const char*>(glGetString(GL_RENDERER))));
+    wisdom.set_static_wisdom(FFTWisdom::get_static_wisdom_from_renderer(context));
     wisdom.set_bench_params(args.warmup, args.iterations, args.dispatches, args.timeout);
-    wisdom.learn_optimal_options_exhaustive(args.width, args.height, args.type, input_target, output_target, options.type);
+    wisdom.learn_optimal_options_exhaustive(context, args.width, args.height, args.type, input_target, output_target, options.type);
 
-    FFT fft(args.width, args.height, args.type, args.type == ComplexToReal ? Inverse : Forward, input_target, output_target, cache, options, wisdom);
+    FFT fft(context, args.width, args.height, args.type, args.type == ComplexToReal ? Inverse : Forward, input_target, output_target, cache, options, wisdom);
 
     double estimated_gflops = 1e-9 * get_estimated_flops(args.width, args.height, args.type);
     double estimated_bandwidth_gb = 1e-9 * fft.get_num_passes() * get_estimated_bw_per_pass(args.width, args.height, args.type, args.fp16);
 
-    glfft_log("Test:\n");
-    glfft_log("  %s -> %s\n", input_target == SSBO ? "SSBO" : "Texture", output_target == SSBO ? "SSBO" : "Image");
-    glfft_log("  Size: %u x %u %s %s\n", args.width, args.height, args.string_for_type, args.fp16 ? "FP16" : "FP32");
+    context->log("Test:\n");
+    context->log("  %s -> %s\n", input_target == SSBO ? "SSBO" : "Texture", output_target == SSBO ? "SSBO" : "Image");
+    context->log("  Size: %u x %u %s %s\n", args.width, args.height, args.string_for_type, args.fp16 ? "FP16" : "FP32");
 
-    double dispatch_time = fft.bench(output_name, input_name, 5, 100, 100, 5.0);
-    glfft_log("  %8.3f ms\n", 1000.0 * dispatch_time);
-    glfft_log("  %8.3f GFlop/s (estimated)\n", estimated_gflops / dispatch_time);
-    glfft_log("  %8.3f GB/s global memory bandwidth (estimated)\n", estimated_bandwidth_gb / dispatch_time);
+    double dispatch_time = fft.bench(context, output.get(), input.get(), 5, 100, 100, 5.0);
+    context->log("  %8.3f ms\n", 1000.0 * dispatch_time);
+    context->log("  %8.3f GFlop/s (estimated)\n", estimated_gflops / dispatch_time);
+    context->log("  %8.3f GB/s global memory bandwidth (estimated)\n", estimated_bandwidth_gb / dispatch_time);
 }
 
-static void cli_help(char *argv[])
+static void cli_help(Context *context, char *argv[])
 {
-    glfft_log("Usage: %s [test | bench | help] (args...)\n", argv[0]);
-    glfft_log("       For help on various subsystems, e.g. %s test help\n", argv[0]);
+    context->log("Usage: %s [test | bench | help] (args...)\n", argv[0]);
+    context->log("       For help on various subsystems, e.g. %s test help\n", argv[0]);
 }
 
-static void cli_test_help()
+static void cli_test_help(Context *context)
 {
-    glfft_log("Usage: test [--test testid] [--test-all] [--test-range testidmin testidmax] [--exit-on-fail] [--minimum-snr-fp16 value-db] [--maximum-snr-fp32 value-db] [--epsilon-fp16 value] [--epsilon-fp32 value]\n"
+    context->log("Usage: test [--test testid] [--test-all] [--test-range testidmin testidmax] [--exit-on-fail] [--minimum-snr-fp16 value-db] [--maximum-snr-fp32 value-db] [--epsilon-fp16 value] [--epsilon-fp32 value]\n"
               "       --test testid: Run a specific test, indexed by number.\n"
               "       --test-all: Run all tests.\n"
               "       --test-range testidmin testidmax: Run specific tests between testidmin and testidmax, indexed by number.\n"
               "       --exit-on-fail: Exit immediately when a test does not pass.\n");
 }
 
-static int cli_test(int argc, char *argv[])
+static int cli_test(Context *context, int argc, char *argv[])
 {
     if (argc < 1)
     {
-        cli_test_help();
+        cli_test_help(context);
         return EXIT_FAILURE;
     }
 
     TestSuiteArguments args;
 
     CLICallbacks cbs;
-    cbs.add("help",               [](CLIParser &parser)      { cli_test_help(); parser.end(); });
+    cbs.add("help",               [context](CLIParser &parser) { cli_test_help(context); parser.end(); });
     cbs.add("--test",             [&args](CLIParser &parser) { args.test_id_min = args.test_id_max = parser.next_uint(); args.exhaustive = false; });
     cbs.add("--test-range",       [&args](CLIParser &parser) { args.test_id_min = parser.next_uint(); args.test_id_max = parser.next_uint(); args.exhaustive = false; });
     cbs.add("--test-all",         [&args](CLIParser&)        { args.exhaustive = true; });
@@ -342,7 +337,7 @@ static int cli_test(int argc, char *argv[])
     cbs.add("--epsilon-fp16",     [&args](CLIParser &parser) { args.epsilon_fp16 = parser.next_double(); });
     cbs.add("--epsilon-fp32",     [&args](CLIParser &parser) { args.epsilon_fp32 = parser.next_double(); });
 
-    cbs.error_handler = []{ cli_test_help(); };
+    cbs.error_handler = [context]{ cli_test_help(context); };
     CLIParser parser(move(cbs), argc, argv);
 
     if (!parser.parse())
@@ -354,13 +349,13 @@ static int cli_test(int argc, char *argv[])
         return EXIT_SUCCESS;
     }
 
-    run_test_suite(args);
+    run_test_suite(context, args);
     return EXIT_SUCCESS;
 }
 
-static void cli_bench_help()
+static void cli_bench_help(Context *context)
 {
-    glfft_log("Usage: bench [--width value] [--height value] [--warmup arg] [--iterations arg] [--dispatches arg] [--timeout arg] [--type type] [--input-texture] [--output-texture]\n"
+    context->log("Usage: bench [--width value] [--height value] [--warmup arg] [--iterations arg] [--dispatches arg] [--timeout arg] [--type type] [--input-texture] [--output-texture]\n"
               "--type type: ComplexToComplex, ComplexToComplexDual, ComplexToReal, RealToComplex\n");
 }
 
@@ -395,18 +390,18 @@ static Type parse_type(const char *arg, BenchArguments &args)
     }
 }
 
-static int cli_bench(int argc, char *argv[])
+static int cli_bench(Context *context, int argc, char *argv[])
 {
     if (argc < 1)
     {
-        cli_bench_help();
+        cli_bench_help(context);
         return EXIT_FAILURE;
     }
 
     BenchArguments args;
 
     CLICallbacks cbs;
-    cbs.add("help",             [](CLIParser &parser) { cli_bench_help(); parser.end(); });
+    cbs.add("help",             [context](CLIParser &parser) { cli_bench_help(context); parser.end(); });
     cbs.add("--width",          [&args](CLIParser &parser) { args.width = parser.next_uint(); });
     cbs.add("--height",         [&args](CLIParser &parser) { args.height = parser.next_uint(); });
     cbs.add("--warmup",         [&args](CLIParser &parser) { args.warmup = parser.next_uint(); });
@@ -418,7 +413,7 @@ static int cli_bench(int argc, char *argv[])
     cbs.add("--input-texture",  [&args](CLIParser&)        { args.input_texture = true; });
     cbs.add("--output-texture", [&args](CLIParser&)        { args.output_texture = true; });
 
-    cbs.error_handler = []{ cli_bench_help(); };
+    cbs.error_handler = [context]{ cli_bench_help(context); };
 
     CLIParser parser(move(cbs), argc, argv);
 
@@ -431,64 +426,48 @@ static int cli_bench(int argc, char *argv[])
         return EXIT_SUCCESS;
     }
 
-    run_benchmark(args);
+    run_benchmark(context, args);
     return EXIT_SUCCESS;
 }
 
-struct Context
-{
-    Context(void *ctx, const function<void (void*)> &cb) : ctx(ctx), cb(cb) {}
-    ~Context() { cb(ctx); }
-
-    void *ctx;
-    const function<void (void*)> &cb;
-};
-
 int GLFFT::cli_main(
-        const function<void* ()> &create_context,
-        const function<void (void*)> &destroy_context,
+        Context *context,
         int argc, char *argv[])
 #ifndef GLFFT_CLI_ASYNC
     noexcept
 #endif
 {
-    auto ctx = unique_ptr<Context>(new Context(create_context(), destroy_context));
-    if (!ctx || !ctx->ctx)
-    {
-        return EXIT_FAILURE;
-    }
-
     // Do not leak exceptions beyond this function.
     try
     {
         if (argc < 2)
         {
-            cli_help(argv);
+            cli_help(context, argv);
             return EXIT_FAILURE;
         }
 
         if (!strcmp(argv[1], "test"))
         {
-            return cli_test(argc - 2, argv + 2);
+            return cli_test(context, argc - 2, argv + 2);
         }
         else if (!strcmp(argv[1], "bench"))
         {
-            return cli_bench(argc - 2, argv + 2);
+            return cli_bench(context, argc - 2, argv + 2);
         }
         else if (!strcmp(argv[1], "help"))
         {
-            cli_help(argv);
+            cli_help(context, argv);
             return EXIT_SUCCESS;
         }
         else
         {
-            cli_help(argv);
+            cli_help(context, argv);
             return EXIT_FAILURE;
         }
     }
     catch (const std::exception &e)
     {
-        glfft_log("Caught exception \"%s\" ...\n", e.what());
+        context->log("Caught exception \"%s\" ...\n", e.what());
         return EXIT_FAILURE;
     }
 
@@ -541,7 +520,7 @@ void AsyncTask::start()
         }
         catch (...)
         {
-            glfft_log("GLFFT task was cancelled!\n");
+            context->log("GLFFT task was cancelled!\n");
             signal_completed(0);
         }
     });

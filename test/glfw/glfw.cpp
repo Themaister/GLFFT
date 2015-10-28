@@ -16,8 +16,11 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#include "glfft_interface.hpp"
+#include "glfft_gl_interface.hpp"
 #include "glfft_context.hpp"
+
+using namespace GLFFT;
+using namespace std;
 
 #ifdef GLFFT_GL_DEBUG
 static void APIENTRY gl_debug_cb(GLenum, GLenum, GLuint, GLenum, GLsizei,
@@ -27,7 +30,20 @@ static void APIENTRY gl_debug_cb(GLenum, GLenum, GLuint, GLenum, GLsizei,
 }
 #endif
 
-void *GLFFT::Context::create()
+struct GLFWContext : GLContext
+{
+    ~GLFWContext()
+    {
+        if (window)
+        {
+            glfwDestroyWindow(window);
+            glfwTerminate();
+        }
+    }
+    GLFWwindow *window = nullptr;
+};
+
+unique_ptr<Context> GLFFT::create_cli_context()
 {
     if (!glfwInit())
     {
@@ -39,15 +55,16 @@ void *GLFFT::Context::create()
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
 
-    auto window = glfwCreateWindow(128, 128, "GLFFT Test", nullptr, nullptr);
+    unique_ptr<GLFWContext> context(new GLFWContext);
 
-    if (!window)
+    context->window = glfwCreateWindow(128, 128, "GLFFT Test", nullptr, nullptr);
+    if (!context->window)
     {
         glfwTerminate();
         return nullptr;
     }
 
-    glfwMakeContextCurrent(window);
+    glfwMakeContextCurrent(context->window);
     rglgen_resolve_symbols(glfwGetProcAddress);
 
 #ifdef GLFFT_GL_DEBUG
@@ -57,17 +74,6 @@ void *GLFFT::Context::create()
     glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS);
 #endif
 
-    return window;
-}
-
-void GLFFT::Context::destroy(void *ptr)
-{
-    auto window = static_cast<GLFWwindow*>(ptr);
-
-    if (window)
-    {
-        glfwDestroyWindow(window);
-        glfwTerminate();
-    }
+    return unique_ptr<Context>(move(context));
 }
 

@@ -23,6 +23,7 @@
 #include <utility>
 #include <string>
 #include "glfft_common.hpp"
+#include "glfft_interface.hpp"
 
 namespace GLFFT
 {
@@ -89,10 +90,12 @@ struct FFTStaticWisdom
 class FFTWisdom
 {
     public:
-        const std::pair<double, FFTOptions::Performance> learn_optimal_options(unsigned Nx, unsigned Ny, unsigned radix,
+        std::pair<double, FFTOptions::Performance> learn_optimal_options(Context *ctx,
+                unsigned Nx, unsigned Ny, unsigned radix,
                 Mode mode, Target input_target, Target output_target, const FFTOptions::Type &type);
 
-        void learn_optimal_options_exhaustive(unsigned Nx, unsigned Ny,
+        void learn_optimal_options_exhaustive(Context *ctx,
+                unsigned Nx, unsigned Ny,
                 Type type, Target input_target, Target output_target, const FFTOptions::Type &fft_type);
 
         const std::pair<const WisdomPass, FFTOptions::Performance>* find_optimal_options(unsigned Nx, unsigned Ny, unsigned radix,
@@ -102,10 +105,10 @@ class FFTWisdom
                 Mode mode, Target input_target, Target output_target, const FFTOptions &base_options) const;
 
         void set_static_wisdom(FFTStaticWisdom static_wisdom) { this->static_wisdom = static_wisdom; }
-        static FFTStaticWisdom get_static_wisdom_from_renderer(const char *renderer);
+        static FFTStaticWisdom get_static_wisdom_from_renderer(Context *context);
 
-        void set_bench_params(unsigned warmup, unsigned iterations, unsigned dispatches,
-                double timeout)
+        void set_bench_params(unsigned warmup,
+                unsigned iterations, unsigned dispatches, double timeout)
         {
             params.warmup = warmup;
             params.iterations = iterations;
@@ -113,16 +116,20 @@ class FFTWisdom
             params.timeout = timeout;
         }
 
+#ifdef GLFFT_SERIALIZATION
         // Serialization interface.
         std::string archive() const;
         void extract(const char *json);
+#endif
 
     private:
         std::unordered_map<WisdomPass, FFTOptions::Performance> library;
 
-        std::pair<double, FFTOptions::Performance> study(const WisdomPass &pass, FFTOptions::Type options) const;
+        std::pair<double, FFTOptions::Performance> study(Context *context,
+                const WisdomPass &pass, FFTOptions::Type options) const;
 
-        double bench(GLuint output, GLuint input, const WisdomPass &pass, const FFTOptions &options,
+        double bench(Context *cmd, Resource *output, Resource *input,
+                const WisdomPass &pass, const FFTOptions &options,
                 const std::shared_ptr<ProgramCache> &cache) const;
 
         FFTStaticWisdom static_wisdom;

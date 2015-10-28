@@ -19,25 +19,117 @@
 #ifndef GLFFT_INTERFACE_HPP__
 #define GLFFT_INTERFACE_HPP__
 
-// Implement this header somewhere in your include path and include relevant GL/GLES API headers.
-#include "glfft_api_headers.hpp"
+#include <memory>
 
-#ifndef GLFFT_GLSL_LANG_STRING
-#error GLFFT_GLSL_LANG_STRING must be defined to e.g. "#version 310 es\n" or "#version 430 core\n".
-#endif
+namespace GLFFT
+{
+    class Context;
 
-#ifndef GLFFT_LOG_OVERRIDE
-// Implement this.
-void glfft_log(const char *fmt, ...);
-#else
-#define glfft_log GLFFT_LOG_OVERRIDE
-#endif
+    class Resource
+    {
+        public:
+            virtual ~Resource() = default;
+        protected:
+            Resource() = default;
+    };
 
-#ifndef GLFFT_TIME_OVERRIDE
-// Implement this.
-void glfft_time();
-#else
-#define glfft_time GLFFT_TIME_OVERRIDE
-#endif
+    class Texture : public Resource {};
+    class Sampler : public Resource {};
+    class Buffer : public Resource {};
+
+    class Program
+    {
+        public:
+            virtual ~Program() = default;
+        protected:
+            friend class Context;
+            Program() = default;
+    };
+
+    enum AccessMode
+    {
+        AccessStreamCopy,
+        AccessStaticCopy,
+        AccessStreamRead
+    };
+
+    enum Format
+    {
+        FormatUnknown,
+        FormatR16G16B16A16Float,
+        FormatR32G32B32A32Float,
+        FormatR32G32Float,
+        FormatR32Float,
+        FormatR16G16Float,
+        FormatR32Uint
+    };
+
+    enum Filter
+    {
+        FilterLinear,
+        FilterNearest
+    };
+
+    enum WrapMode
+    {
+        WrapClamp,
+        WrapRepeat
+    };
+
+    class CommandBuffer;
+
+    class Context
+    {
+        public:
+            virtual ~Context() = default;
+
+            virtual std::unique_ptr<Texture> create_texture(const void *initial_data,
+                    unsigned width, unsigned height, unsigned levels,
+                    Format format, WrapMode wrap_s, WrapMode wrap_t,
+                    Filter min_filter, Filter mag_filter) = 0;
+            virtual std::unique_ptr<Buffer> create_buffer(const void *initial_data, size_t size, AccessMode access) = 0;
+            virtual std::unique_ptr<Program> compile_compute_shader(const char *source) = 0;
+
+            virtual CommandBuffer* request_command_buffer() = 0;
+            virtual void submit_command_buffer(CommandBuffer *cmd) = 0;
+            virtual void wait_idle() = 0;
+
+            virtual const char* get_renderer_string() = 0;
+            virtual void log(const char *fmt, ...) = 0;
+            virtual double get_time() = 0;
+
+            virtual unsigned get_max_work_group_threads() = 0;
+
+            virtual const void* map(Buffer *buffer, size_t offset, size_t size) = 0;
+            virtual void unmap(Buffer *buffer) = 0;
+
+        protected:
+            Context() = default;
+    };
+
+    class CommandBuffer
+    {
+        public:
+            virtual ~CommandBuffer() = default;
+
+            virtual void bind_program(Program *program) = 0;
+            virtual void bind_storage_texture(unsigned binding, Texture *texture, Format format) = 0;
+            virtual void bind_texture(unsigned binding, Texture *texture) = 0;
+            virtual void bind_sampler(unsigned binding, Sampler *sampler) = 0;
+            virtual void bind_storage_buffer(unsigned binding, Buffer *texture) = 0;
+            virtual void bind_storage_buffer_range(unsigned binding, size_t offset, size_t length, Buffer *texture) = 0;
+            virtual void dispatch(unsigned x, unsigned y, unsigned z) = 0;
+
+            virtual void barrier(Buffer *buffer) = 0;
+            virtual void barrier(Texture *buffer) = 0;
+            virtual void barrier() = 0;
+
+            virtual void uniform1ui(unsigned location, unsigned v) = 0;
+            virtual void uniform2f(unsigned location, float v0, float v1) = 0;
+
+        protected:
+            CommandBuffer() = default;
+    };
+}
 
 #endif

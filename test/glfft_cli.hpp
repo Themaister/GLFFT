@@ -20,6 +20,7 @@
 #define GLFFT_CLI_HPP__
 
 #include <functional>
+#include "glfft_interface.hpp"
 
 #ifdef GLFFT_CLI_ASYNC
 #include <thread>
@@ -46,7 +47,7 @@ namespace GLFFT
             double epsilon_fp32 = 1e-6;
         };
 
-        void run_test_suite(const TestSuiteArguments &args);
+        void run_test_suite(Context *context, const TestSuiteArguments &args);
     }
 
 #ifdef GLFFT_CLI_ASYNC
@@ -91,14 +92,12 @@ namespace GLFFT
 #endif
 
     int cli_main(
-            const std::function<void* ()> &create_context,
-            const std::function<void (void*)> &destroy_context,
+            Context *context,
             int argc, char *argv[])
 #ifndef GLFFT_CLI_ASYNC
-        noexcept;
-#else
-        ;
+        noexcept
 #endif
+        ;
 }
 
 #endif

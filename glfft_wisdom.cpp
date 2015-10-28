@@ -17,41 +17,44 @@
  */
 
 #include "glfft_wisdom.hpp"
+#include "glfft_interface.hpp"
 #include "glfft.hpp"
 #include <utility>
 
+#ifndef GLFFT_SERIALIZATION
 #include "rapidjson/include/rapidjson/reader.h"
 #include "rapidjson/include/rapidjson/prettywriter.h"
 #include "rapidjson/include/rapidjson/stringbuffer.h"
 #include "rapidjson/include/rapidjson/document.h"
+using namespace rapidjson;
+#endif
 
 using namespace std;
 using namespace GLFFT;
-using namespace rapidjson;
 
-FFTStaticWisdom FFTWisdom::get_static_wisdom_from_renderer(const char *renderer)
+FFTStaticWisdom FFTWisdom::get_static_wisdom_from_renderer(Context *context)
 {
     FFTStaticWisdom res;
 
-    GLint value = 0;
-    glGetIntegerv(GL_MAX_COMPUTE_WORK_GROUP_INVOCATIONS, &value);
+    const char *renderer = context->get_renderer_string();
+    unsigned threads = context->get_max_work_group_threads();
 
     if (strstr(renderer, "GeForce"))
     {
-        glfft_log("Detected GeForce GPU.\n");
+        context->log("Detected GeForce GPU.\n");
         res.min_workgroup_size = 32; // Warp threads.
         res.min_workgroup_size_shared = 32;
-        res.max_workgroup_size = min(value, 256); // Very unlikely that more than 256 threads will do anything good.
+        res.max_workgroup_size = min(threads, 256u); // Very unlikely that more than 256 threads will do anything good.
         res.min_vector_size = 2;
         res.max_vector_size = 2;
         res.shared_banked = FFTStaticWisdom::True;
     }
     else if (strstr(renderer, "Radeon"))
     {
-        glfft_log("Detected Radeon GPU.\n");
+        context->log("Detected Radeon GPU.\n");
         res.min_workgroup_size = 64; // Wavefront threads (GCN).
         res.min_workgroup_size_shared = 128;
-        res.max_workgroup_size = min(value, 256); // Very unlikely that more than 256 threads will do anything good.
+        res.max_workgroup_size = min(threads, 256u); // Very unlikely that more than 256 threads will do anything good.
         // TODO: Find if we can restrict this to 2 or 4 always.
         res.min_vector_size = 2;
         res.max_vector_size = 4;
@@ -59,7 +62,7 @@ FFTStaticWisdom FFTWisdom::get_static_wisdom_from_renderer(const char *renderer)
     }
     else if (strstr(renderer, "Mali"))
     {
-        glfft_log("Detected Mali GPU.\n");
+        context->log("Detected Mali GPU.\n");
 
         res.min_workgroup_size = 4;
         res.min_workgroup_size_shared = 4;
@@ -73,7 +76,8 @@ FFTStaticWisdom FFTWisdom::get_static_wisdom_from_renderer(const char *renderer)
     return res;
 }
 
-const pair<double, FFTOptions::Performance> FFTWisdom::learn_optimal_options(unsigned Nx, unsigned Ny, unsigned radix,
+pair<double, FFTOptions::Performance> FFTWisdom::learn_optimal_options(
+        Context *context, unsigned Nx, unsigned Ny, unsigned radix,
         Mode mode, Target input_target, Target output_target,
         const FFTOptions::Type &type)
 {
@@ -92,7 +96,7 @@ const pair<double, FFTOptions::Performance> FFTWisdom::learn_optimal_options(uns
     }
     else
     {
-        auto result = study(pass, type);
+        auto result = study(context, pass, type);
         pass.cost = result.first;
         library[pass] = result.second;
 
@@ -100,7 +104,8 @@ const pair<double, FFTOptions::Performance> FFTWisdom::learn_optimal_options(uns
     }
 }
 
-void FFTWisdom::learn_optimal_options_exhaustive(unsigned Nx, unsigned Ny,
+void FFTWisdom::learn_optimal_options_exhaustive(Context *context,
+        unsigned Nx, unsigned Ny,
         Type type, Target input_target, Target output_target, const FFTOptions::Type &fft_type)
 {
     bool learn_resolve = type == ComplexToReal || type == RealToComplex;
@@ -118,9 +123,9 @@ void FFTWisdom::learn_optimal_options_exhaustive(unsigned Nx, unsigned Ny,
             // Learn plain transforms.
             if (Ny > 1)
             {
-                learn_optimal_options(Nx >> learn_resolve, Ny, radix, vertical_mode, SSBO, SSBO, fft_type);
+                learn_optimal_options(context, Nx >> learn_resolve, Ny, radix, vertical_mode, SSBO, SSBO, fft_type);
             }
-            learn_optimal_options(Nx >> learn_resolve, Ny, radix, horizontal_mode, SSBO, SSBO, fft_type);
+            learn_optimal_options(context, Nx >> learn_resolve, Ny, radix, horizontal_mode, SSBO, SSBO, fft_type);
 
             // Learn the first/last pass transforms. Can be fairly significant since accessing textures makes more sense with
             // block interleave and larger WG_Y sizes.
@@ -128,18 +133,18 @@ void FFTWisdom::learn_optimal_options_exhaustive(unsigned Nx, unsigned Ny,
             {
                 if (Ny > 1)
                 {
-                    learn_optimal_options(Nx >> learn_resolve, Ny, radix, vertical_mode, input_target, SSBO, fft_type);
+                    learn_optimal_options(context, Nx >> learn_resolve, Ny, radix, vertical_mode, input_target, SSBO, fft_type);
                 }
-                learn_optimal_options(Nx >> learn_resolve, Ny, radix, horizontal_mode, input_target, SSBO, fft_type);
+                learn_optimal_options(context, Nx >> learn_resolve, Ny, radix, horizontal_mode, input_target, SSBO, fft_type);
             }
 
             if (output_target != SSBO)
             {
                 if (Ny > 1)
                 {
-                    learn_optimal_options(Nx >> learn_resolve, Ny, radix, vertical_mode, SSBO, output_target, fft_type);
+                    learn_optimal_options(context, Nx >> learn_resolve, Ny, radix, vertical_mode, SSBO, output_target, fft_type);
                 }
-                learn_optimal_options(Nx >> learn_resolve, Ny, radix, horizontal_mode, SSBO, output_target, fft_type);
+                learn_optimal_options(context, Nx >> learn_resolve, Ny, radix, horizontal_mode, SSBO, output_target, fft_type);
             }
         }
         catch (...)
@@ -169,11 +174,11 @@ void FFTWisdom::learn_optimal_options_exhaustive(unsigned Nx, unsigned Ny,
             // If Ny == 1 and we're doing RealToComplex, this will be the last pass, so use output_target as target.
             if (Ny == 1 && resolve_mode == ResolveRealToComplex)
             {
-                learn_optimal_options(Nx >> learn_resolve, Ny, 2, resolve_mode, resolve_input_target, output_target, resolve_type);
+                learn_optimal_options(context, Nx >> learn_resolve, Ny, 2, resolve_mode, resolve_input_target, output_target, resolve_type);
             }
             else
             {
-                learn_optimal_options(Nx >> learn_resolve, Ny, 2, resolve_mode, resolve_input_target, SSBO, resolve_type);
+                learn_optimal_options(context, Nx >> learn_resolve, Ny, 2, resolve_mode, resolve_input_target, SSBO, resolve_type);
             }
         }
         catch (...)
@@ -184,14 +189,15 @@ void FFTWisdom::learn_optimal_options_exhaustive(unsigned Nx, unsigned Ny,
     }
 }
 
-double FFTWisdom::bench(GLuint output, GLuint input,
+double FFTWisdom::bench(Context *context, Resource *output, Resource *input,
         const WisdomPass &pass, const FFTOptions &options, const shared_ptr<ProgramCache> &cache) const
 {
-    FFT fft(pass.pass.Nx, pass.pass.Ny, pass.pass.radix, pass.pass.input_target != SSBO ? 1 : pass.pass.radix,
+    FFT fft(context, pass.pass.Nx, pass.pass.Ny, pass.pass.radix, pass.pass.input_target != SSBO ? 1 : pass.pass.radix,
             pass.pass.mode, pass.pass.input_target, pass.pass.output_target,
             cache, options);
 
-    return fft.bench(output, input, params.warmup, params.iterations, params.dispatches, params.timeout);
+    return fft.bench(context,
+            output, input, params.warmup, params.iterations, params.dispatches, params.timeout);
 }
 
 static inline unsigned mode_to_size(Mode mode)
@@ -209,29 +215,23 @@ static inline unsigned mode_to_size(Mode mode)
     }
 }
 
-std::pair<double, FFTOptions::Performance> FFTWisdom::study(const WisdomPass &pass, FFTOptions::Type type) const
+std::pair<double, FFTOptions::Performance> FFTWisdom::study(Context *context, const WisdomPass &pass, FFTOptions::Type type) const
 {
     auto cache = make_shared<ProgramCache>();
 
-    Buffer output;
-    Buffer input;
-    Texture output_tex;
-    Texture input_tex;
-    GLuint output_name = 0;
-    GLuint input_name = 0;
+    unique_ptr<Resource> output;
+    unique_ptr<Resource> input;
 
     unsigned mode_size = mode_to_size(pass.pass.mode);
     vector<float> tmp(mode_size * pass.pass.Nx * pass.pass.Ny);
 
     if (pass.pass.input_target == SSBO)
     {
-        input.init(tmp.data(), tmp.size() * sizeof(float) >> type.input_fp16, GL_STATIC_COPY);
-        input_name = input.get();
+        input = context->create_buffer(tmp.data(), tmp.size() * sizeof(float) >> type.input_fp16, AccessStaticCopy);
     }
     else
     {
-        GLenum internal_format = 0;
-        GLenum format = 0;
+        Format format = FormatUnknown;
         unsigned Nx = pass.pass.Nx;
         unsigned Ny = pass.pass.Ny;
 
@@ -239,19 +239,16 @@ std::pair<double, FFTOptions::Performance> FFTWisdom::study(const WisdomPass &pa
         {
             case VerticalDual:
             case HorizontalDual:
-                internal_format = GL_RGBA32F;
-                format = GL_RGBA;
+                format = FormatR32G32B32A32Float;
                 break;
 
             case Vertical:
             case Horizontal:
-                internal_format = GL_RG32F;
-                format = GL_RG;
+                format = FormatR32G32Float;
                 break;
 
             case ResolveComplexToReal:
-                internal_format = GL_RG32F;
-                format = GL_RG;
+                format = FormatR32G32Float;
                 Nx *= 2;
                 break;
 
@@ -259,19 +256,16 @@ std::pair<double, FFTOptions::Performance> FFTWisdom::study(const WisdomPass &pa
                 throw logic_error("Invalid input mode.\n");
         }
 
-        input_tex.init(Nx, Ny, 1, internal_format);
-        input_tex.upload(tmp.data(), format, GL_FLOAT, 0, 0, Nx, Ny);
-        input_name = input_tex.get();
+        input = context->create_texture(tmp.data(), Nx, Ny, 1, format, WrapClamp, WrapClamp, FilterNearest, FilterNearest);
     }
 
     if (pass.pass.output_target == SSBO)
     {
-        output.init(nullptr, tmp.size() * sizeof(float) >> type.output_fp16, GL_STREAM_COPY);
-        output_name = output.get();
+        output = context->create_buffer(nullptr, tmp.size() * sizeof(float) >> type.output_fp16, AccessStreamCopy);
     }
     else
     {
-        GLenum internal_format = 0;
+        Format format = FormatUnknown;
         unsigned Nx = pass.pass.Nx;
         unsigned Ny = pass.pass.Ny;
 
@@ -279,16 +273,16 @@ std::pair<double, FFTOptions::Performance> FFTWisdom::study(const WisdomPass &pa
         {
             case VerticalDual:
             case HorizontalDual:
-                internal_format = GL_RGBA32F;
+                format = FormatR32G32B32A32Float;
                 break;
 
             case Vertical:
             case Horizontal:
-                internal_format = GL_RG32F;
+                format = FormatR32G32Float;
                 break;
 
             case ResolveRealToComplex:
-                internal_format = GL_RG32F;
+                format = FormatR32G32Float;
                 Nx *= 2;
                 break;
 
@@ -296,14 +290,13 @@ std::pair<double, FFTOptions::Performance> FFTWisdom::study(const WisdomPass &pa
                 throw logic_error("Invalid output mode.\n");
         }
 
-        output_tex.init(Nx, Ny, 1, internal_format);
-        output_name = output_tex.get();
+        output = context->create_texture(nullptr, Nx, Ny, 1, format, WrapClamp, WrapClamp, FilterNearest, FilterNearest);
     }
 
     // Exhaustive search, look for every sensible combination, and find fastest parameters.
     // Get initial best cost with defaults.
     FFTOptions::Performance best_perf;
-    double minimum_cost = bench(output_name, input_name, pass, { best_perf, type }, cache);
+    double minimum_cost = bench(context, output.get(), input.get(), pass, { best_perf, type }, cache);
 
     static const FFTStaticWisdom::Tristate shared_banked_values[] = { FFTStaticWisdom::False, FFTStaticWisdom::True };
     static const unsigned vector_size_values[] = { 2, 4, 8 };
@@ -393,23 +386,23 @@ std::pair<double, FFTOptions::Performance> FFTWisdom::study(const WisdomPass &pa
                     try
                     {
                         // If workgroup sizes are too big for our test, this will throw.
-                        double cost = bench(output_name, input_name, pass, { perf, type }, cache);
+                        double cost = bench(context, output.get(), input.get(), pass, { perf, type }, cache);
                         bench_count++;
 
 #if 1
-                        glfft_log("\nWisdom run (mode = %u, radix = %u):\n", pass.pass.mode, pass.pass.radix);
-                        glfft_log("  Width:            %4u\n", pass.pass.Nx);
-                        glfft_log("  Height:           %4u\n", pass.pass.Ny);
-                        glfft_log("  Shared banked:     %3s\n", shared_banked ? "yes" : "no");
-                        glfft_log("  Vector size:         %u\n", vector_size);
-                        glfft_log("  Workgroup size: (%u, %u)\n", workgroup_size_x, workgroup_size_y);
-                        glfft_log("  Cost:         %8.3g\n", cost);
+                        context->log("\nWisdom run (mode = %u, radix = %u):\n", pass.pass.mode, pass.pass.radix);
+                        context->log("  Width:            %4u\n", pass.pass.Nx);
+                        context->log("  Height:           %4u\n", pass.pass.Ny);
+                        context->log("  Shared banked:     %3s\n", shared_banked ? "yes" : "no");
+                        context->log("  Vector size:         %u\n", vector_size);
+                        context->log("  Workgroup size: (%u, %u)\n", workgroup_size_x, workgroup_size_y);
+                        context->log("  Cost:         %8.3g\n", cost);
 #endif
 
                         if (cost < minimum_cost)
                         {
 #if 1
-                            glfft_log("  New optimal solution! (%g -> %g)\n", minimum_cost, cost);
+                            context->log("  New optimal solution! (%g -> %g)\n", minimum_cost, cost);
 #endif
                             best_perf = perf;
                             minimum_cost = cost;
@@ -425,7 +418,7 @@ std::pair<double, FFTOptions::Performance> FFTWisdom::study(const WisdomPass &pa
         }
     }
 
-    glfft_log("Tested %u variants!\n", bench_count);
+    context->log("Tested %u variants!\n", bench_count);
     return make_pair(minimum_cost, best_perf);
 }
 
@@ -460,7 +453,7 @@ const FFTOptions::Performance& FFTWisdom::find_optimal_options_or_default(unsign
 #if 0
     if (itr == end(library))
     {
-        glfft_log("Didn't find options for (%u x %u, radix %u, mode %u, input_target %u, output_target %u)\n",
+        context->log("Didn't find options for (%u x %u, radix %u, mode %u, input_target %u, output_target %u)\n",
                 Nx, Ny, radix, unsigned(mode), unsigned(input_target), unsigned(output_target));
     }
 #endif
@@ -468,6 +461,7 @@ const FFTOptions::Performance& FFTWisdom::find_optimal_options_or_default(unsign
     return itr != end(library) ? itr->second : base_options.performance;
 }
 
+#ifdef GLFFT_SERIALIZATION
 std::string FFTWisdom::archive() const
 {
     StringBuffer s;
@@ -579,4 +573,5 @@ void FFTWisdom::extract(const char *json)
     // Exception safe.
     swap(library, new_library);
 }
+#endif
 

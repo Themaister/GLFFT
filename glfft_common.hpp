@@ -162,72 +162,15 @@ namespace std
 namespace GLFFT
 {
 
-class Buffer
-{
-    public:
-        Buffer() = default;
-        ~Buffer();
-
-        Buffer(GLuint buffer);
-        Buffer& operator=(Buffer &&buffer) noexcept;
-        Buffer(Buffer &&buffer) noexcept;
-
-        void init(const void *data, size_t size, GLenum access);
-
-        inline GLuint get() const { return name; }
-
-    private:
-        GLuint name = 0;
-};
-
-class Texture
-{
-    public:
-        Texture() = default;
-        ~Texture();
-
-        Texture(GLuint tex);
-        Texture& operator=(Texture &&tex) noexcept;
-        Texture(Texture &&tex) noexcept;
-
-        void init(unsigned width, unsigned height, unsigned levels, GLenum internal_format,
-                GLenum wrap_s = GL_REPEAT, GLenum wrap_t = GL_REPEAT,
-                GLenum min_filter = GL_NEAREST, GLenum mag_filter = GL_NEAREST);
-        void upload(const void *data, GLenum format, GLenum type,
-                unsigned x_off, unsigned y_off, unsigned width, unsigned height);
-
-        inline GLuint get() const { return name; }
-
-    private:
-        GLuint name = 0;
-};
-
-class Program
-{
-    public:
-        Program() = default;
-        ~Program();
-
-        Program(GLuint prog);
-        Program& operator=(Program &&prog) noexcept;
-        Program(Program &&prog) noexcept;
-
-        inline GLuint get() const { return name; }
-
-    private:
-        GLuint name = 0;
-};
-
 class ProgramCache
 {
     public:
-        GLuint find_program(const Parameters &parameters) const;
-        void insert_program(const Parameters &parameters, GLuint program);
-
+        Program* find_program(const Parameters &parameters) const;
+        void insert_program(const Parameters &parameters, std::unique_ptr<Program> program);
         size_t cache_size() const { return programs.size(); }
 
     private:
-        std::unordered_map<Parameters, Program> programs;
+        std::unordered_map<Parameters, std::unique_ptr<Program>> programs;
 };
 
 }

@@ -237,23 +237,23 @@ static mufft_buffer create_reference(Type type, Direction direction,
     return output;
 }
 
-static mufft_buffer readback(GLuint buffer, size_t size)
+static mufft_buffer readback(Context *context, Buffer *buffer, size_t size)
 {
     auto buf = alloc(size);
 
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, buffer);
-    const void *ptr = glMapBufferRange(GL_SHADER_STORAGE_BUFFER, 0, size, GL_MAP_READ_BIT);
+    const void *ptr = context->map(buffer, 0, size);
     if (ptr == nullptr)
     {
         throw bad_alloc();
     }
 
     memcpy(buf.get(), ptr, size);
-    glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
+    context->unmap(buffer);
     return buf;
 }
 
-static bool validate_surface(const float *a, const float *b, unsigned Nx, unsigned Ny, unsigned stride, float epsilon, float min_snr)
+static bool validate_surface(Context *context,
+        const float *a, const float *b, unsigned Nx, unsigned Ny, unsigned stride, float epsilon, float min_snr)
 {
     float max_diff = 0.0f;
     double signal = 0.0;
@@ -280,19 +280,20 @@ static bool validate_surface(const float *a, const float *b, unsigned Nx, unsign
     double snr = 10.0 * log10(signal / noise);
     if (snr < min_snr)
     {
-        glfft_log("Too low SNR: %8.3f dB\n", snr);
+        context->log("Too low SNR: %8.3f dB\n", snr);
         valid = false;
     }
-    glfft_log("\tMax diff: %10.6g (reference: %10.6g), SNR: %8.3f dB (reference: %8.3f)\n", max_diff, epsilon, snr, min_snr);
+    context->log("\tMax diff: %10.6g (reference: %10.6g), SNR: %8.3f dB (reference: %8.3f)\n", max_diff, epsilon, snr, min_snr);
 
     if (!valid)
     {
-        glfft_log("Surface is not valid!\n");
+        context->log("Surface is not valid!\n");
     }
     return valid;
 }
 
-static void validate(Type type, const float *a, const float *b, unsigned Nx, unsigned Ny, float epsilon, float min_snr)
+static void validate(Context *context,
+        Type type, const float *a, const float *b, unsigned Nx, unsigned Ny, float epsilon, float min_snr)
 {
     unsigned stride = 0;
     unsigned x = 0;
@@ -328,7 +329,7 @@ static void validate(Type type, const float *a, const float *b, unsigned Nx, uns
             throw logic_error("Invalid type");
     }
 
-    if (!validate_surface(a, b, x, y, stride, epsilon, min_snr))
+    if (!validate_surface(context, a, b, x, y, stride, epsilon, min_snr))
     {
         throw logic_error("Failed to validate surface.");
     }
@@ -490,16 +491,17 @@ static mufft_buffer convert_fp16_fp32(const uint32_t *input, unsigned N)
     return buffer;
 }
 
-static void run_test_ssbo(const TestSuiteArguments &args, unsigned Nx, unsigned Ny, Type type, Direction direction, const FFTOptions &options, const shared_ptr<ProgramCache> &cache)
+static void run_test_ssbo(Context *context,
+        const TestSuiteArguments &args, unsigned Nx, unsigned Ny, Type type, Direction direction, const FFTOptions &options, const shared_ptr<ProgramCache> &cache)
 {
-    glfft_log("Running SSBO -> SSBO FFT, %04u x %04u\n\t%7s transform\n\t%8s\n\tbanked shared %s\n\tvector size %u\n\twork group (%u, %u)\n\tinput fp16 %s\n\toutput fp16 %s ...\n",
+    context->log("Running SSBO -> SSBO FFT, %04u x %04u\n\t%7s transform\n\t%8s\n\tbanked shared %s\n\tvector size %u\n\twork group (%u, %u)\n\tinput fp16 %s\n\toutput fp16 %s ...\n",
             Nx, Ny, direction_to_str(direction), type_to_str(type),
             options.performance.shared_banked ? "yes" : "no", options.performance.vector_size, options.performance.workgroup_size_x, options.performance.workgroup_size_y,
             options.type.input_fp16 ? "yes" : "no",
             options.type.output_fp16 ? "yes" : "no");
 
-    Buffer test_input;
-    Buffer test_output;
+    unique_ptr<Buffer> test_input;
+    unique_ptr<Buffer> test_output;
 
     size_t input_size = Nx * Ny * type_to_input_size(type);
     size_t output_size = Nx * Ny * type_to_output_size(type);
@@ -511,14 +513,19 @@ static void run_test_ssbo(const TestSuiteArguments &args, unsigned Nx, unsigned 
     {
         input = convert_fp32_fp16(static_cast<const float*>(input.get()), input_size / sizeof(float));
     }
-    test_input.init(input.get(), input_size >> options.type.input_fp16, GL_STREAM_COPY);
-    test_output.init(nullptr, output_size >> options.type.output_fp16, GL_STREAM_READ);
 
-    FFT fft(Nx, Ny, type, direction, SSBO, SSBO, cache, options);
-    fft.process(test_output.get(), test_input.get(), test_input.get());
-    glMemoryBarrier(GL_ALL_BARRIER_BITS);
+    test_input = context->create_buffer(input.get(), input_size >> options.type.input_fp16, AccessStreamCopy);
+    test_output = context->create_buffer(nullptr, output_size >> options.type.output_fp16, AccessStreamRead);
 
-    auto output_data = readback(test_output.get(), output_size >> options.type.output_fp16);
+    FFT fft(context, Nx, Ny, type, direction, SSBO, SSBO, cache, options);
+
+    auto *cmd = context->request_command_buffer();
+    fft.process(cmd, test_output.get(), test_input.get(), test_input.get());
+    cmd->barrier();
+    context->submit_command_buffer(cmd);
+    context->wait_idle();
+
+    auto output_data = readback(context, test_output.get(), output_size >> options.type.output_fp16);
     if (options.type.output_fp16)
     {
         output_data = convert_fp16_fp32(static_cast<const uint32_t*>(output_data.get()), output_size / sizeof(float));
@@ -530,21 +537,22 @@ static void run_test_ssbo(const TestSuiteArguments &args, unsigned Nx, unsigned 
     {
         epsilon *= 1.5f;
     }
-    validate(type, static_cast<const float*>(output_data.get()), static_cast<const float*>(output.get()), Nx, Ny, epsilon, min_snr);
+    validate(context, type, static_cast<const float*>(output_data.get()), static_cast<const float*>(output.get()), Nx, Ny, epsilon, min_snr);
 
-    glfft_log("... Success!\n");
+    context->log("... Success!\n");
 }
 
-static void run_test_texture(const TestSuiteArguments &args, unsigned Nx, unsigned Ny, Type type, Direction direction, const FFTOptions &options, const shared_ptr<ProgramCache> &cache)
+static void run_test_texture(Context *context,
+        const TestSuiteArguments &args, unsigned Nx, unsigned Ny, Type type, Direction direction, const FFTOptions &options, const shared_ptr<ProgramCache> &cache)
 {
-    glfft_log("Running Texture -> SSBO FFT, %04u x %04u\n\t%7s transform\n\t%8s\n\tbanked shared %s\n\tvector size %u\n\twork group (%u, %u)\n\tinput fp16 %s\n\toutput fp16 %s ...\n",
+    context->log("Running Texture -> SSBO FFT, %04u x %04u\n\t%7s transform\n\t%8s\n\tbanked shared %s\n\tvector size %u\n\twork group (%u, %u)\n\tinput fp16 %s\n\toutput fp16 %s ...\n",
             Nx, Ny, direction_to_str(direction), type_to_str(type),
             options.performance.shared_banked ? "yes" : "no", options.performance.vector_size, options.performance.workgroup_size_x, options.performance.workgroup_size_y,
             options.type.input_fp16 ? "yes" : "no",
             options.type.output_fp16 ? "yes" : "no");
 
-    Texture test_input;
-    Buffer test_output;
+    unique_ptr<Texture> test_input;
+    unique_ptr<Buffer> test_output;
 
     size_t input_size = Nx * Ny * type_to_input_size(type);
     size_t output_size = Nx * Ny * type_to_output_size(type);
@@ -552,38 +560,39 @@ static void run_test_texture(const TestSuiteArguments &args, unsigned Nx, unsign
     auto input = create_input(input_size / sizeof(float));
     auto output = create_reference(type, direction, Nx, Ny, input.get(), output_size);
 
-    GLenum internal_format = 0;
-    GLenum format = 0;
+    Format format = FormatUnknown;
 
     switch (type)
     {
         case ComplexToComplexDual:
-            internal_format = GL_RGBA32F;
-            format = GL_RGBA;
+            format = FormatR32G32B32A32Float;
             break;
 
         case ComplexToComplex:
         case ComplexToReal:
-            internal_format = GL_RG32F;
-            format = GL_RG;
+            format = FormatR32G32Float;
             break;
 
         case RealToComplex:
-            internal_format = GL_R32F;
-            format = GL_RED;
+            format = FormatR32Float;
             break;
     }
 
-    test_input.init(Nx, Ny, 1, internal_format);
-    test_input.upload(input.get(), format, GL_FLOAT, 0, 0, Nx, Ny);
-    test_output.init(nullptr, output_size >> options.type.output_fp16, GL_STREAM_READ);
+    test_input = context->create_texture(input.get(), Nx, Ny, 1, format,
+            WrapClamp, WrapClamp, FilterNearest, FilterNearest);
 
-    FFT fft(Nx, Ny, type, direction, type == RealToComplex ? ImageReal : Image, SSBO, cache, options);
+    test_output = context->create_buffer(nullptr, output_size >> options.type.output_fp16, AccessStreamRead);
+
+    FFT fft(context, Nx, Ny, type, direction, type == RealToComplex ? ImageReal : Image, SSBO, cache, options);
     fft.set_texture_offset_scale(0.5f / Nx, 0.5f / Ny, 1.0f / Nx, 1.0f / Ny);
-    fft.process(test_output.get(), test_input.get(), test_input.get());
-    glMemoryBarrier(GL_ALL_BARRIER_BITS);
 
-    auto output_data = readback(test_output.get(), output_size >> options.type.output_fp16);
+    auto *cmd = context->request_command_buffer();
+    fft.process(cmd, test_output.get(), test_input.get(), test_input.get());
+    cmd->barrier();
+    context->submit_command_buffer(cmd);
+    context->wait_idle();
+
+    auto output_data = readback(context, test_output.get(), output_size >> options.type.output_fp16);
     if (options.type.output_fp16)
     {
         output_data = convert_fp16_fp32(static_cast<const uint32_t*>(output_data.get()), output_size / sizeof(float));
@@ -595,9 +604,9 @@ static void run_test_texture(const TestSuiteArguments &args, unsigned Nx, unsign
     {
         epsilon *= 1.5f;
     }
-    validate(type, static_cast<const float*>(output_data.get()), static_cast<const float*>(output.get()), Nx, Ny, epsilon, min_snr);
+    validate(context, type, static_cast<const float*>(output_data.get()), static_cast<const float*>(output.get()), Nx, Ny, epsilon, min_snr);
 
-    glfft_log("... Success!\n");
+    context->log("... Success!\n");
 }
 
 // Reading back floating point textures on pure GLES 3.1 is not standard, and we don't have glGetTexImage2D, so only test this on desktop for now.
@@ -630,7 +639,7 @@ static mufft_buffer readback_texture(GLuint tex, unsigned components, unsigned N
 
 static void run_test_image(const TestSuiteArguments &args, unsigned Nx, unsigned Ny, Type type, Direction direction, const FFTOptions &options, const shared_ptr<ProgramCache> &cache)
 {
-    glfft_log("Running SSBO -> Image FFT, %04u x %04u\n\t%7s transform\n\t%8s\n\tbanked shared %s\n\tvector size %u\n\twork group (%u, %u)\n\tinput fp16 %s\n\toutput fp16 %s ...\n",
+    context->log("Running SSBO -> Image FFT, %04u x %04u\n\t%7s transform\n\t%8s\n\tbanked shared %s\n\tvector size %u\n\twork group (%u, %u)\n\tinput fp16 %s\n\toutput fp16 %s ...\n",
             Nx, Ny, direction_to_str(direction), type_to_str(type),
             options.performance.shared_banked ? "yes" : "no", options.performance.vector_size, options.performance.workgroup_size_x, options.performance.workgroup_size_y,
             options.type.input_fp16 ? "yes" : "no",
@@ -697,29 +706,30 @@ static void run_test_image(const TestSuiteArguments &args, unsigned Nx, unsigned
 
     validate(type, static_cast<const float*>(output_data.get()), static_cast<const float*>(output.get()), Nx, Ny, epsilon, min_snr);
 
-    glfft_log("... Success!\n");
+    context->log("... Success!\n");
 }
 #endif
 
-static void enqueue_test(vector<function<void ()>> &tests,
+static void enqueue_test(Context *context,
+        vector<function<void ()>> &tests,
         const TestSuiteArguments &args, unsigned Nx, unsigned Ny, Type type, Direction direction,
         Target input_target, Target output_target, const FFTOptions &options, const shared_ptr<ProgramCache> &cache)
 {
     if (input_target == SSBO && output_target == SSBO)
     {
-        tests.push_back([=] { run_test_ssbo(args, Nx, Ny, type, direction, options, cache); });
+        tests.push_back([=] { run_test_ssbo(context, args, Nx, Ny, type, direction, options, cache); });
     }
     else if (input_target == SSBO && output_target == Image)
     {
 #ifdef HAVE_GLSYM
-        tests.push_back([=] { run_test_image(args, Nx, Ny, type, direction, options, cache); });
+        tests.push_back([=] { run_test_image(context, args, Nx, Ny, type, direction, options, cache); });
 #else
         throw logic_error("run_test_image() not supported on GLES.");
 #endif
     }
     else if (input_target == Image && output_target == SSBO)
     {
-        tests.push_back([=] { run_test_texture(args, Nx, Ny, type, direction, options, cache); });
+        tests.push_back([=] { run_test_texture(context, args, Nx, Ny, type, direction, options, cache); });
     }
     else
     {
@@ -745,7 +755,7 @@ static void test_fp32_fp16_convert()
     }
 }
 
-void GLFFT::Internal::run_test_suite(const TestSuiteArguments &args)
+void GLFFT::Internal::run_test_suite(Context *context, const TestSuiteArguments &args)
 {
     // Sanity test, should never fail.
     test_fp32_fp16_convert();
@@ -809,57 +819,57 @@ void GLFFT::Internal::run_test_suite(const TestSuiteArguments &args)
         for (unsigned N = N_mult * (big_workgroup ? 128 : 32); N <= 1024; N <<= 1)
         {
             // Texture -> SSBO
-            enqueue_test(tests, args, N, N / 2, ComplexToComplex, Forward, Image, SSBO, options, cache);
-            enqueue_test(tests, args, N, N / 2, ComplexToComplex, Inverse, Image, SSBO, options, cache);
-            enqueue_test(tests, args, N, N / 2, ComplexToComplex, InverseConvolve, Image, SSBO, options, cache);
+            enqueue_test(context, tests, args, N, N / 2, ComplexToComplex, Forward, Image, SSBO, options, cache);
+            enqueue_test(context, tests, args, N, N / 2, ComplexToComplex, Inverse, Image, SSBO, options, cache);
+            enqueue_test(context, tests, args, N, N / 2, ComplexToComplex, InverseConvolve, Image, SSBO, options, cache);
 
-            enqueue_test(tests, args, 2 * N, N, ComplexToReal, Inverse, Image, SSBO, options, cache);
-            enqueue_test(tests, args, 2 * N, N, ComplexToReal, InverseConvolve, Image, SSBO, options, cache);
-            enqueue_test(tests, args, 4 * N, N, RealToComplex, Forward, Image, SSBO, options, cache);
+            enqueue_test(context, tests, args, 2 * N, N, ComplexToReal, Inverse, Image, SSBO, options, cache);
+            enqueue_test(context, tests, args, 2 * N, N, ComplexToReal, InverseConvolve, Image, SSBO, options, cache);
+            enqueue_test(context, tests, args, 4 * N, N, RealToComplex, Forward, Image, SSBO, options, cache);
 
             if (options.performance.vector_size >= 4)
             {
-                enqueue_test(tests, args, N, N, ComplexToComplexDual, Forward, Image, SSBO, options, cache);
-                enqueue_test(tests, args, N, N, ComplexToComplexDual, Inverse, Image, SSBO, options, cache);
-                enqueue_test(tests, args, N, N, ComplexToComplexDual, InverseConvolve, Image, SSBO, options, cache);
+                enqueue_test(context, tests, args, N, N, ComplexToComplexDual, Forward, Image, SSBO, options, cache);
+                enqueue_test(context, tests, args, N, N, ComplexToComplexDual, Inverse, Image, SSBO, options, cache);
+                enqueue_test(context, tests, args, N, N, ComplexToComplexDual, InverseConvolve, Image, SSBO, options, cache);
             }
 
             if (!big_workgroup)
             {
-                enqueue_test(tests, args, N, 1, ComplexToComplex, Forward, Image, SSBO, options, cache);
-                enqueue_test(tests, args, N, 1, ComplexToComplex, Inverse, Image, SSBO, options, cache);
-                enqueue_test(tests, args, N, 1, ComplexToComplex, InverseConvolve, Image, SSBO, options, cache);
+                enqueue_test(context, tests, args, N, 1, ComplexToComplex, Forward, Image, SSBO, options, cache);
+                enqueue_test(context, tests, args, N, 1, ComplexToComplex, Inverse, Image, SSBO, options, cache);
+                enqueue_test(context, tests, args, N, 1, ComplexToComplex, InverseConvolve, Image, SSBO, options, cache);
             }
 
             // SSBO -> SSBO
-            enqueue_test(tests, args, N, N / 2, ComplexToComplex, Forward, SSBO, SSBO, options, cache);
-            enqueue_test(tests, args, 2 * N, N, RealToComplex, Forward, SSBO, SSBO, options, cache);
-            enqueue_test(tests, args, N, N / 2, ComplexToComplex, Inverse, SSBO, SSBO, options, cache);
-            enqueue_test(tests, args, 4 * N, N, ComplexToReal, Inverse, SSBO, SSBO, options, cache);
-            enqueue_test(tests, args, N, N, ComplexToComplex, InverseConvolve, SSBO, SSBO, options, cache);
-            enqueue_test(tests, args, 2 * N, N, ComplexToReal, InverseConvolve, SSBO, SSBO, options, cache);
+            enqueue_test(context, tests, args, N, N / 2, ComplexToComplex, Forward, SSBO, SSBO, options, cache);
+            enqueue_test(context, tests, args, 2 * N, N, RealToComplex, Forward, SSBO, SSBO, options, cache);
+            enqueue_test(context, tests, args, N, N / 2, ComplexToComplex, Inverse, SSBO, SSBO, options, cache);
+            enqueue_test(context, tests, args, 4 * N, N, ComplexToReal, Inverse, SSBO, SSBO, options, cache);
+            enqueue_test(context, tests, args, N, N, ComplexToComplex, InverseConvolve, SSBO, SSBO, options, cache);
+            enqueue_test(context, tests, args, 2 * N, N, ComplexToReal, InverseConvolve, SSBO, SSBO, options, cache);
 
             if (options.performance.vector_size >= 4)
             {
-                enqueue_test(tests, args, N, N, ComplexToComplexDual, Forward, SSBO, SSBO, options, cache);
-                enqueue_test(tests, args, N, N, ComplexToComplexDual, Inverse, SSBO, SSBO, options, cache);
-                enqueue_test(tests, args, N, N, ComplexToComplexDual, InverseConvolve, SSBO, SSBO, options, cache);
+                enqueue_test(context, tests, args, N, N, ComplexToComplexDual, Forward, SSBO, SSBO, options, cache);
+                enqueue_test(context, tests, args, N, N, ComplexToComplexDual, Inverse, SSBO, SSBO, options, cache);
+                enqueue_test(context, tests, args, N, N, ComplexToComplexDual, InverseConvolve, SSBO, SSBO, options, cache);
             }
 
             if (!big_workgroup)
             {
-                enqueue_test(tests, args, N, 1, ComplexToComplex, Forward, SSBO, SSBO, options, cache);
-                enqueue_test(tests, args, 4 * N, 1, RealToComplex, Forward, SSBO, SSBO, options, cache);
-                enqueue_test(tests, args, N, 1, ComplexToComplex, Inverse, SSBO, SSBO, options, cache);
-                enqueue_test(tests, args, 2 * N, 1, ComplexToReal, Inverse, SSBO, SSBO, options, cache);
-                enqueue_test(tests, args, N, 1, ComplexToComplex, InverseConvolve, SSBO, SSBO, options, cache);
-                enqueue_test(tests, args, 2 * N, 1, ComplexToReal, InverseConvolve, SSBO, SSBO, options, cache);
+                enqueue_test(context, tests, args, N, 1, ComplexToComplex, Forward, SSBO, SSBO, options, cache);
+                enqueue_test(context, tests, args, 4 * N, 1, RealToComplex, Forward, SSBO, SSBO, options, cache);
+                enqueue_test(context, tests, args, N, 1, ComplexToComplex, Inverse, SSBO, SSBO, options, cache);
+                enqueue_test(context, tests, args, 2 * N, 1, ComplexToReal, Inverse, SSBO, SSBO, options, cache);
+                enqueue_test(context, tests, args, N, 1, ComplexToComplex, InverseConvolve, SSBO, SSBO, options, cache);
+                enqueue_test(context, tests, args, 2 * N, 1, ComplexToReal, InverseConvolve, SSBO, SSBO, options, cache);
 
                 if (options.performance.vector_size >= 4)
                 {
-                    enqueue_test(tests, args, N, 1, ComplexToComplexDual, Forward, SSBO, SSBO, options, cache);
-                    enqueue_test(tests, args, 2 * N, 1, ComplexToComplexDual, Inverse, SSBO, SSBO, options, cache);
-                    enqueue_test(tests, args, N, 1, ComplexToComplexDual, InverseConvolve, SSBO, SSBO, options, cache);
+                    enqueue_test(context, tests, args, N, 1, ComplexToComplexDual, Forward, SSBO, SSBO, options, cache);
+                    enqueue_test(context, tests, args, 2 * N, 1, ComplexToComplexDual, Inverse, SSBO, SSBO, options, cache);
+                    enqueue_test(context, tests, args, N, 1, ComplexToComplexDual, InverseConvolve, SSBO, SSBO, options, cache);
                 }
             }
 
@@ -867,29 +877,29 @@ void GLFFT::Internal::run_test_suite(const TestSuiteArguments &args)
 #ifdef HAVE_GLSYM
             if (N == 1024)
             {
-                enqueue_test(tests, args, N, N / 2, ComplexToComplex, Forward, SSBO, Image, options, cache);
-                enqueue_test(tests, args, N, N / 2, ComplexToComplexDual, Forward, SSBO, Image, options, cache);
-                enqueue_test(tests, args, 2 * N, N, RealToComplex, Forward, SSBO, Image, options, cache);
-                enqueue_test(tests, args, N, N / 2, ComplexToComplex, Inverse, SSBO, Image, options, cache);
-                enqueue_test(tests, args, N, N, ComplexToComplexDual, Inverse, SSBO, Image, options, cache);
-                enqueue_test(tests, args, 2 * N, N, ComplexToReal, Inverse, SSBO, Image, options, cache);
-                enqueue_test(tests, args, N, N, ComplexToComplex, InverseConvolve, SSBO, Image, options, cache);
-                enqueue_test(tests, args, N, N, ComplexToComplexDual, InverseConvolve, SSBO, Image, options, cache);
-                enqueue_test(tests, args, 2 * N, N, ComplexToReal, InverseConvolve, SSBO, Image, options, cache);
+                enqueue_test(context, tests, args, N, N / 2, ComplexToComplex, Forward, SSBO, Image, options, cache);
+                enqueue_test(context, tests, args, N, N / 2, ComplexToComplexDual, Forward, SSBO, Image, options, cache);
+                enqueue_test(context, tests, args, 2 * N, N, RealToComplex, Forward, SSBO, Image, options, cache);
+                enqueue_test(context, tests, args, N, N / 2, ComplexToComplex, Inverse, SSBO, Image, options, cache);
+                enqueue_test(context, tests, args, N, N, ComplexToComplexDual, Inverse, SSBO, Image, options, cache);
+                enqueue_test(context, tests, args, 2 * N, N, ComplexToReal, Inverse, SSBO, Image, options, cache);
+                enqueue_test(context, tests, args, N, N, ComplexToComplex, InverseConvolve, SSBO, Image, options, cache);
+                enqueue_test(context, tests, args, N, N, ComplexToComplexDual, InverseConvolve, SSBO, Image, options, cache);
+                enqueue_test(context, tests, args, 2 * N, N, ComplexToReal, InverseConvolve, SSBO, Image, options, cache);
 
                 if (!big_workgroup)
                 {
-                    enqueue_test(tests, args, N, 1, ComplexToComplex, Forward, SSBO, Image, options, cache);
-                    enqueue_test(tests, args, N, 1, ComplexToComplexDual, Forward, SSBO, Image, options, cache);
-                    enqueue_test(tests, args, N, 1, ComplexToReal, Inverse, SSBO, Image, options, cache);
-                    enqueue_test(tests, args, N, 1, RealToComplex, Forward, SSBO, Image, options, cache);
+                    enqueue_test(context, tests, args, N, 1, ComplexToComplex, Forward, SSBO, Image, options, cache);
+                    enqueue_test(context, tests, args, N, 1, ComplexToComplexDual, Forward, SSBO, Image, options, cache);
+                    enqueue_test(context, tests, args, N, 1, ComplexToReal, Inverse, SSBO, Image, options, cache);
+                    enqueue_test(context, tests, args, N, 1, RealToComplex, Forward, SSBO, Image, options, cache);
                 }
             }
 #endif
         }
     }
 
-    glfft_log("Enqueued %u tests!\n", unsigned(tests.size()));
+    context->log("Enqueued %u tests!\n", unsigned(tests.size()));
 
     unsigned successful_tests = 0;
     vector<unsigned> failed_tests;
@@ -929,13 +939,13 @@ void GLFFT::Internal::run_test_suite(const TestSuiteArguments &args)
 
             try
             {
-                glfft_log("Running test #%u!\n", index);
+                context->log("Running test #%u!\n", index);
                 test();
                 successful_tests++;
             }
             catch (...)
             {
-                glfft_log("Failed test #%u!\n", index);
+                context->log("Failed test #%u!\n", index);
                 if (args.throw_on_fail)
                 {
                     throw;
@@ -948,19 +958,19 @@ void GLFFT::Internal::run_test_suite(const TestSuiteArguments &args)
 
     if (args.throw_on_fail)
     {
-        glfft_log("Successfully ran tests!\n");
+        context->log("Successfully ran tests!\n");
     }
     else
     {
-        glfft_log("%u successful tests.\n", successful_tests);
-        glfft_log("Failed tests: ===\n");
+        context->log("%u successful tests.\n", successful_tests);
+        context->log("Failed tests: ===\n");
         for (auto failed : failed_tests)
         {
-            glfft_log("    %u\n", failed);
+            context->log("    %u\n", failed);
         }
-        glfft_log("=================\n");
+        context->log("=================\n");
     }
 
-    glfft_log("%u entries in shader cache!\n", unsigned(cache->cache_size()));
+    context->log("%u entries in shader cache!\n", unsigned(cache->cache_size()));
 }
 

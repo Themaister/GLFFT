@@ -20,20 +20,10 @@
 #include "glfft_context.hpp"
 
 using namespace GLFFT;
-using namespace GLFFT::Context;
-
-static void *create_context_cli()
-{
-    return Context::create();
-}
-
-static void destroy_context_cli(void *priv)
-{
-    Context::destroy(priv);
-}
 
 int main(int argc, char *argv[])
 {
-    return cli_main(create_context_cli, destroy_context_cli, argc, argv);
+    auto context = create_cli_context();
+    return cli_main(context.get(), argc, argv);
 }
 

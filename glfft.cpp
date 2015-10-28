@@ -321,7 +321,7 @@ static vector<Radix> split_radices(unsigned Nx, unsigned Ny, Mode mode, Target i
     return radices_out;
 }
 
-GLuint ProgramCache::find_program(const Parameters &parameters) const
+Program* ProgramCache::find_program(const Parameters &parameters) const
 {
     auto itr = programs.find(parameters);
     if (itr != end(programs))
@@ -330,26 +330,27 @@ GLuint ProgramCache::find_program(const Parameters &parameters) const
     }
     else
     {
-        return 0;
+        return nullptr;
     }
 }
 
-void ProgramCache::insert_program(const Parameters &parameters, GLuint program)
+void ProgramCache::insert_program(const Parameters &parameters, std::unique_ptr<Program> program)
 {
-    programs[parameters] = Program(program);
+    programs[parameters] = move(program);
 }
 
-GLuint FFT::get_program(const Parameters &params)
+Program* FFT::get_program(const Parameters &params)
 {
-    GLuint prog = cache->find_program(params);
+    Program *prog = cache->find_program(params);
     if (!prog)
     {
-        prog = build_program(params);
-        if (!prog)
+        auto newprog = build_program(params);
+        if (!newprog)
         {
             throw runtime_error("Failed to compile shader.\n");
         }
-        cache->insert_program(params, prog);
+        prog = newprog.get();
+        cache->insert_program(params, move(newprog));
     }
     return prog;
 }
@@ -375,11 +376,11 @@ static inline unsigned mode_to_input_components(Mode mode)
     }
 }
 
-FFT::FFT(unsigned Nx, unsigned Ny,
+FFT::FFT(Context *context, unsigned Nx, unsigned Ny,
         unsigned radix, unsigned p,
         Mode mode, Target input_target, Target output_target,
         std::shared_ptr<ProgramCache> program_cache, const FFTOptions &options)
-    : cache(move(program_cache)), size_x(Nx), size_y(Ny)
+    : context(context), cache(move(program_cache)), size_x(Nx), size_y(Ny)
 {
     set_texture_offset_scale(0.5f / Nx, 0.5f / Ny, 1.0f / Nx, 1.0f / Ny);
 
@@ -443,37 +444,36 @@ FFT::FFT(unsigned Nx, unsigned Ny,
         res.num_workgroups_x, res.num_workgroups_y,
         uv_scale_x,
         get_program(params),
-        0u,
     };
 
     passes.push_back(pass);
 }
 
-static inline void print_radix_splits(const vector<Radix> radices[2])
+static inline void print_radix_splits(Context *context, const vector<Radix> radices[2])
 {
-    glfft_log("Transform #1\n");
+    context->log("Transform #1\n");
     for (auto &radix : radices[0])
     {
-        glfft_log("  Size: (%u, %u, %u)\n",
+        context->log("  Size: (%u, %u, %u)\n",
                 radix.size.x, radix.size.y, radix.size.z);
-        glfft_log("  Dispatch: (%u, %u)\n",
+        context->log("  Dispatch: (%u, %u)\n",
                 radix.num_workgroups_x, radix.num_workgroups_y);
-        glfft_log("  Radix: %u\n",
+        context->log("  Radix: %u\n",
                 radix.radix);
-        glfft_log("  VectorSize: %u\n\n",
+        context->log("  VectorSize: %u\n\n",
                 radix.vector_size);
     }
 
-    glfft_log("Transform #2\n");
+    context->log("Transform #2\n");
     for (auto &radix : radices[1])
     {
-        glfft_log("  Size: (%u, %u, %u)\n",
+        context->log("  Size: (%u, %u, %u)\n",
                 radix.size.x, radix.size.y, radix.size.z);
-        glfft_log("  Dispatch: (%u, %u)\n",
+        context->log("  Dispatch: (%u, %u)\n",
                 radix.num_workgroups_x, radix.num_workgroups_y);
-        glfft_log("  Radix: %u\n",
+        context->log("  Radix: %u\n",
                 radix.radix);
-        glfft_log("  VectorSize: %u\n\n",
+        context->log("  VectorSize: %u\n\n",
                 radix.vector_size);
     }
 }
@@ -497,20 +497,20 @@ static inline unsigned type_to_input_components(Type type)
     }
 }
 
-FFT::FFT(unsigned Nx, unsigned Ny,
+FFT::FFT(Context *context, unsigned Nx, unsigned Ny,
         Type type, Direction direction, Target input_target, Target output_target,
         std::shared_ptr<ProgramCache> program_cache, const FFTOptions &options, const FFTWisdom &wisdom)
-    : cache(move(program_cache)), size_x(Nx), size_y(Ny)
+    : context(context), cache(move(program_cache)), size_x(Nx), size_y(Ny)
 {
     set_texture_offset_scale(0.5f / Nx, 0.5f / Ny, 1.0f / Nx, 1.0f / Ny);
 
     size_t temp_buffer_size = Nx * Ny * sizeof(float) * (type == ComplexToComplexDual ? 4 : 2);
     temp_buffer_size >>= options.type.output_fp16;
 
-    temp_buffer.init(nullptr, temp_buffer_size, GL_STREAM_COPY);
+    temp_buffer = context->create_buffer(nullptr, temp_buffer_size, AccessStreamCopy);
     if (output_target != SSBO)
     {
-        temp_buffer_image.init(nullptr, temp_buffer_size, GL_STREAM_COPY);
+        temp_buffer_image = context->create_buffer(nullptr, temp_buffer_size, AccessStreamCopy);
     }
 
     bool expand = false;
@@ -582,8 +582,8 @@ FFT::FFT(unsigned Nx, unsigned Ny,
             break;
     }
 
-#if 1
-    print_radix_splits(radices);
+#if 0
+    print_radix_splits(context, radices);
 #endif
 
     passes.reserve(radices[0].size() + radices[1].size() + expand);
@@ -628,14 +628,11 @@ FFT::FFT(unsigned Nx, unsigned Ny,
                 options.type.normalize,
             };
 
-            // For last pass, we don't know how our resource will be used afterwards,
-            // so let barrier decisions be up to the API user.
             const Pass pass = {
                 params,
                 radix.num_workgroups_x, radix.num_workgroups_y,
                 uv_scale_x,
                 get_program(params),
-                last_pass ? 0u : GL_SHADER_STORAGE_BARRIER_BIT,
             };
 
             passes.push_back(pass);
@@ -685,7 +682,6 @@ FFT::FFT(unsigned Nx, unsigned Ny,
                 Ny / res.size.y,
                 uv_scale_x,
                 get_program(params),
-                GL_SHADER_STORAGE_BARRIER_BIT,
             };
 
             passes.push_back(pass);
@@ -713,14 +709,14 @@ void FFT::store_shader_string(const char *path, const string &source)
     file.write(source.data(), source.size());
 }
 
-GLuint FFT::build_program(const Parameters &params)
+unique_ptr<Program> FFT::build_program(const Parameters &params)
 {
     string str;
     str.reserve(16 * 1024);
 
 #if 0
-    glfft_log("Building program:\n");
-    glfft_log(
+    context->log("Building program:\n");
+    context->log(
             "   WG_X:      %u\n"
             "   WG_Y:      %u\n"
             "   WG_Z:      %u\n"
@@ -926,7 +922,7 @@ GLuint FFT::build_program(const Parameters &params)
     str += Blob::fft_main_source;
 #endif
 
-    GLuint prog = compile_compute_shader(str.c_str());
+    auto prog = context->compile_compute_shader(str.c_str());
     if (!prog)
     {
         puts(str.c_str());
@@ -942,106 +938,56 @@ GLuint FFT::build_program(const Parameters &params)
     return prog;
 }
 
-GLuint FFT::compile_compute_shader(const char *src)
-{
-    GLuint program = glCreateProgram();
-    if (!program)
-    {
-        return 0;
-    }
-
-    GLuint shader = glCreateShader(GL_COMPUTE_SHADER);
-
-    const char *sources[] = { GLFFT_GLSL_LANG_STRING, src };
-    glShaderSource(shader, 2, sources, NULL);
-    glCompileShader(shader);
-
-    GLint status;
-    glGetShaderiv(shader, GL_COMPILE_STATUS, &status);
-    if (status == GL_FALSE)
-    {
-        GLint len;
-        GLsizei out_len;
-
-        glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &len);
-        vector<char> buf(len);
-        glGetShaderInfoLog(shader, len, &out_len, buf.data());
-        glfft_log("GLFFT: Shader log:\n%s\n\n", buf.data());
-
-        glDeleteShader(shader);
-        glDeleteProgram(program);
-        return 0;
-    }
-
-    glAttachShader(program, shader);
-    glLinkProgram(program);
-    glDeleteShader(shader);
-
-    glGetProgramiv(program, GL_LINK_STATUS, &status);
-    if (status == GL_FALSE)
-    {
-        GLint len;
-        GLsizei out_len;
-        glGetProgramiv(program, GL_INFO_LOG_LENGTH, &len);
-        vector<char> buf(len);
-        glGetProgramInfoLog(program, len, &out_len, buf.data());
-        glfft_log("Program log:\n%s\n\n", buf.data());
-
-        glDeleteProgram(program);
-        glDeleteShader(shader);
-        return 0;
-    }
-
-    return program;
-}
-
-double FFT::bench(GLuint output, GLuint input,
+double FFT::bench(Context *context, Resource *output, Resource *input,
         unsigned warmup_iterations, unsigned iterations, unsigned dispatches_per_iteration, double max_time)
 {
-    glFinish();
+    context->wait_idle();
+    auto *cmd = context->request_command_buffer();
     for (unsigned i = 0; i < warmup_iterations; i++)
     {
-#ifdef GLFFT_CLI_ASYNC
-            check_async_cancel();
-#endif
-
-        process(output, input);
+        process(cmd, output, input);
     }
-    glFinish();
+    context->submit_command_buffer(cmd);
+    context->wait_idle();
 
     unsigned runs = 0;
-    double start_time = glfft_time();
+    double start_time = context->get_time();
     double total_time = 0.0;
 
-    for (unsigned i = 0; i < iterations && (((glfft_time() - start_time) < max_time) || i == 0); i++)
+    for (unsigned i = 0; i < iterations && (((context->get_time() - start_time) < max_time) || i == 0); i++)
     {
 #ifdef GLFFT_CLI_ASYNC
-            check_async_cancel();
+        check_async_cancel();
 #endif
 
-        double iteration_start = glfft_time();
+        auto *cmd = context->request_command_buffer();
+
+        double iteration_start = context->get_time();
         for (unsigned d = 0; d < dispatches_per_iteration; d++)
         {
-            process(output, input);
-            glMemoryBarrier(GL_ALL_BARRIER_BITS);
+            process(cmd, output, input);
+            cmd->barrier();
             runs++;
         }
-        glFinish();
-        double iteration_end = glfft_time();
+
+        context->submit_command_buffer(cmd);
+        context->wait_idle();
+
+        double iteration_end = context->get_time();
         total_time += iteration_end - iteration_start;
     }
 
     return total_time / runs;
 }
 
-void FFT::process(GLuint output, GLuint input, GLuint input_aux)
+void FFT::process(CommandBuffer *cmd, Resource *output, Resource *input, Resource *input_aux)
 {
     if (passes.empty())
     {
         return;
     }
 
-    GLuint buffers[2] = {
+    Resource *buffers[2] = {
         input,
         passes.size() & 1 ?
             (passes.back().parameters.output_target != SSBO ? temp_buffer_image.get() : output) :
@@ -1052,32 +998,31 @@ void FFT::process(GLuint output, GLuint input, GLuint input_aux)
     {
         if (passes.front().parameters.input_target != SSBO)
         {
-            glActiveTexture(GL_TEXTURE1);
-            glBindTexture(GL_TEXTURE_2D, input_aux);
-            glBindSampler(1, texture.samplers[1]);
+            cmd->bind_texture(1, static_cast<Texture*>(input_aux));
+            cmd->bind_sampler(1, texture.samplers[1]);
         }
         else
         {
             if (ssbo.input_aux.size != 0)
             {
-                glBindBufferRange(GL_SHADER_STORAGE_BUFFER, 2, input_aux,
-                        ssbo.input_aux.offset, ssbo.input_aux.size);
+                cmd->bind_storage_buffer_range(2,
+                        ssbo.input_aux.offset, ssbo.input_aux.size, static_cast<Buffer*>(input_aux));
             }
             else
             {
-                glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, input_aux);
+                cmd->bind_storage_buffer(2, static_cast<Buffer*>(input_aux));
             }
         }
     }
 
-    GLuint current_program = 0;
+    Program *current_program = nullptr;
     unsigned p = 1;
     unsigned pass_index = 0;
     for (auto &pass : passes)
     {
         if (pass.program != current_program)
         {
-            glUseProgram(pass.program);
+            cmd->bind_program(pass.program);
             current_program = pass.program;
         }
 
@@ -1087,50 +1032,48 @@ void FFT::process(GLuint output, GLuint input, GLuint input_aux)
         }
         else
         {
-            glUniform1ui(0, p);
+            cmd->uniform1ui(0, p);
         }
 
         p *= pass.parameters.radix;
 
         if (pass.parameters.input_target != SSBO)
         {
-            glActiveTexture(GL_TEXTURE0);
-            glBindTexture(GL_TEXTURE_2D, buffers[0]);
-            glBindSampler(0, texture.samplers[0]);
+            cmd->bind_texture(0, static_cast<Texture*>(buffers[0]));
+            cmd->bind_sampler(0, texture.samplers[0]);
 
             // If one compute thread reads multiple texels in X dimension, scale this accordingly.
             float scale_x = texture.scale_x * pass.uv_scale_x;
-            glUniform2f(1, texture.offset_x, texture.offset_y);
-            glUniform2f(2, scale_x, texture.scale_y);
+
+            cmd->uniform2f(1, texture.offset_x, texture.offset_y);
+            cmd->uniform2f(2, scale_x, texture.scale_y);
         }
         else
         {
             if (buffers[0] == input && ssbo.input.size != 0)
             {
-                glBindBufferRange(GL_SHADER_STORAGE_BUFFER, 0, buffers[0],
-                        ssbo.input.offset, ssbo.input.size);
+                cmd->bind_storage_buffer_range(0,
+                        ssbo.input.offset, ssbo.input.size, static_cast<Buffer*>(buffers[0]));
             }
             else if (buffers[0] == output && ssbo.output.size != 0)
             {
-                // This can behave weirdly if output is an image and our temp buffers GLuint aliases with
-                // the output texture name, but we shouldn't set ssbo.output.size in this case anyways.
-                glBindBufferRange(GL_SHADER_STORAGE_BUFFER, 0, buffers[0],
-                        ssbo.output.offset, ssbo.output.size);
+                cmd->bind_storage_buffer_range(0,
+                        ssbo.output.offset, ssbo.output.size, static_cast<Buffer*>(buffers[0]));
             }
             else
             {
-                glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, buffers[0]);
+                cmd->bind_storage_buffer(0, static_cast<Buffer*>(buffers[0]));
             }
         }
 
         if (pass.parameters.output_target != SSBO)
         {
-            GLenum format = 0;
+            Format format = FormatUnknown;
 
             // TODO: Make this more flexible, would require shader variants per-format though.
             if (pass.parameters.output_target == ImageReal)
             {
-                format = GL_R32F;
+                format = FormatR32Float;
             }
             else
             {
@@ -1138,39 +1081,41 @@ void FFT::process(GLuint output, GLuint input, GLuint input_aux)
                 {
                     case VerticalDual:
                     case HorizontalDual:
-                        format = GL_RGBA16F;
+                        format = FormatR16G16B16A16Float;
                         break;
 
                     case Vertical:
                     case Horizontal:
                     case ResolveRealToComplex:
-                        format = GL_R32UI;
+                        format = FormatR32Uint;
                         break;
 
                     default:
                         break;
                 }
             }
-            glBindImageTexture(0, output, 0, GL_FALSE, 0, GL_WRITE_ONLY, format);
+            cmd->bind_storage_texture(0, static_cast<Texture*>(output), format);
         }
         else
         {
             if (buffers[1] == output && ssbo.output.size != 0)
             {
-                glBindBufferRange(GL_SHADER_STORAGE_BUFFER, 1, buffers[1],
-                        ssbo.output.offset, ssbo.output.size);
+                cmd->bind_storage_buffer_range(1,
+                        ssbo.output.offset, ssbo.output.size, static_cast<Buffer*>(buffers[1]));
             }
             else
             {
-                glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, buffers[1]);
+                cmd->bind_storage_buffer(1, static_cast<Buffer*>(buffers[1]));
             }
         }
 
-        glDispatchCompute(pass.workgroups_x, pass.workgroups_y, 1);
+        cmd->dispatch(pass.workgroups_x, pass.workgroups_y, 1);
 
-        if (pass.barriers != 0)
+        // For last pass, we don't know how our resource will be used afterwards,
+        // so let barrier decisions be up to the API user.
+        if (pass_index + 1 < passes.size())
         {
-            glMemoryBarrier(pass.barriers);
+            cmd->barrier(static_cast<Buffer*>(buffers[0]));
         }
 
         if (pass_index == 0)
