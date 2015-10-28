@@ -609,35 +609,31 @@ static void run_test_texture(Context *context,
     context->log("... Success!\n");
 }
 
-// Reading back floating point textures on pure GLES 3.1 is not standard, and we don't have glGetTexImage2D, so only test this on desktop for now.
-// This test is only for sanity testing anyways.
-#ifdef HAVE_GLSYM
-static mufft_buffer readback_texture(GLuint tex, unsigned components, unsigned Nx, unsigned Ny)
+static mufft_buffer readback_texture(Context *context, Texture *tex, unsigned components, unsigned Nx, unsigned Ny)
 {
     auto buffer = alloc(Nx * Ny * components * sizeof(float));
     
-    GLenum format = 0;
+    Format format = FormatUnknown;
     switch (components)
     {
         case 1:
-            format = GL_RED;
+            format = FormatR32Float;
             break;
 
         case 2:
-            format = GL_RG;
+            format = FormatR32G32Float;
             break;
 
         case 4:
-            format = GL_RGBA;
+            format = FormatR32G32B32A32Float;
             break;
     }
 
-    glBindTexture(GL_TEXTURE_2D, tex);
-    glGetTexImage(GL_TEXTURE_2D, 0, format, GL_FLOAT, static_cast<float*>(buffer.get()));
+    context->read_texture(buffer.get(), tex, format);
     return buffer;
 }
 
-static void run_test_image(const TestSuiteArguments &args, unsigned Nx, unsigned Ny, Type type, Direction direction, const FFTOptions &options, const shared_ptr<ProgramCache> &cache)
+static void run_test_image(Context *context, const TestSuiteArguments &args, unsigned Nx, unsigned Ny, Type type, Direction direction, const FFTOptions &options, const shared_ptr<ProgramCache> &cache)
 {
     context->log("Running SSBO -> Image FFT, %04u x %04u\n\t%7s transform\n\t%8s\n\tbanked shared %s\n\tvector size %u\n\twork group (%u, %u)\n\tinput fp16 %s\n\toutput fp16 %s ...\n",
             Nx, Ny, direction_to_str(direction), type_to_str(type),
@@ -645,7 +641,7 @@ static void run_test_image(const TestSuiteArguments &args, unsigned Nx, unsigned
             options.type.input_fp16 ? "yes" : "no",
             options.type.output_fp16 ? "yes" : "no");
 
-    Buffer test_input;
+    unique_ptr<Buffer> test_input;
 
     size_t input_size = Nx * Ny * type_to_input_size(type);
     size_t output_size = Nx * Ny * type_to_output_size(type);
@@ -657,45 +653,44 @@ static void run_test_image(const TestSuiteArguments &args, unsigned Nx, unsigned
     {
         input = convert_fp32_fp16(static_cast<const float*>(input.get()), input_size / sizeof(float));
     }
-    test_input.init(input.get(), input_size >> options.type.input_fp16, GL_STREAM_COPY);
 
-    GLenum internal_format = 0;
-    GLenum format = 0;
+    test_input = context->create_buffer(input.get(), input_size >> options.type.input_fp16, AccessStreamCopy);
+
+    Format format = FormatUnknown;
     unsigned components = 0;
     switch (type)
     {
         case ComplexToComplexDual:
-            internal_format = GL_RGBA16F;
-            format = GL_RGBA;
+            format = FormatR16G16B16A16Float;
             components = 4;
             break;
 
         case ComplexToComplex:
         case RealToComplex:
-            internal_format = GL_RG16F;
-            format = GL_RG;
+            format = FormatR16G16Float;
             components = 2;
             break;
 
         case ComplexToReal:
-            internal_format = GL_R32F;
-            format = GL_RED;
+            format = FormatR32Float;
             components = 1;
             break;
     }
 
-    Texture tex;
-    tex.init(Nx, Ny, 1, internal_format);
-
     // Upload a blank buffer to make debugging easier.
     vector<float> blank(Nx * Ny * components * sizeof(float));
-    tex.upload(blank.data(), format, GL_FLOAT, 0, 0, Nx, Ny);
+    unique_ptr<Texture> tex = context->create_texture(blank.data(), Nx, Ny, 1, format,
+            WrapClamp, WrapClamp, FilterNearest, FilterNearest);
 
-    FFT fft(Nx, Ny, type, direction, SSBO, type != ComplexToReal ? Image : ImageReal, cache, options);
-    fft.process(tex.get(), test_input.get(), test_input.get());
-    glMemoryBarrier(GL_ALL_BARRIER_BITS);
+    FFT fft(context, Nx, Ny, type, direction, SSBO, type != ComplexToReal ? Image : ImageReal, cache, options);
 
-    auto output_data = readback_texture(tex.get(), components, Nx, Ny);
+    auto *cmd = context->request_command_buffer();
+    fft.process(cmd, tex.get(), test_input.get(), test_input.get());
+    cmd->barrier();
+    context->submit_command_buffer(cmd);
+    context->wait_idle();
+
+    auto output_data = readback_texture(context, tex.get(), components, Nx, Ny);
 
     float epsilon = components > 1 || options.type.output_fp16 || options.type.input_fp16 ? args.epsilon_fp16 : args.epsilon_fp32;
     float min_snr = components > 1 || options.type.output_fp16 || options.type.input_fp16 ? args.min_snr_fp16 : args.min_snr_fp32;
@@ -704,11 +699,11 @@ static void run_test_image(const TestSuiteArguments &args, unsigned Nx, unsigned
         epsilon *= 1.5f;
     }
 
-    validate(type, static_cast<const float*>(output_data.get()), static_cast<const float*>(output.get()), Nx, Ny, epsilon, min_snr);
+    validate(context, type, static_cast<const float*>(output_data.get()), static_cast<const float*>(output.get()),
+            Nx, Ny, epsilon, min_snr);
 
     context->log("... Success!\n");
 }
-#endif
 
 static void enqueue_test(Context *context,
         vector<function<void ()>> &tests,
@@ -721,11 +716,14 @@ static void enqueue_test(Context *context,
     }
     else if (input_target == SSBO && output_target == Image)
     {
-#ifdef HAVE_GLSYM
-        tests.push_back([=] { run_test_image(context, args, Nx, Ny, type, direction, options, cache); });
-#else
-        throw logic_error("run_test_image() not supported on GLES.");
-#endif
+        if (context->supports_texture_readback())
+        {
+            tests.push_back([=] { run_test_image(context, args, Nx, Ny, type, direction, options, cache); });
+        }
+        else
+        {
+            throw logic_error("run_test_image() not supported on interface.");
+        }
     }
     else if (input_target == Image && output_target == SSBO)
     {
@@ -799,18 +797,11 @@ void GLFFT::Internal::run_test_suite(Context *context, const TestSuiteArguments 
             continue;
         }
 
-#ifdef HAVE_GLSYM
-        // Pointless to test on desktop for now ...
+        // Pointless to test for now ...
         if (options.performance.vector_size == 8)
         {
             continue;
         }
-#else
-        if (!options.type.fp16 && options.performance.vector_size == 8)
-        {
-            continue;
-        }
-#endif
 
         bool big_workgroup = i & 32;
         options.performance.workgroup_size_x = big_workgroup ? 8 : 4;
@@ -874,28 +865,29 @@ void GLFFT::Internal::run_test_suite(Context *context, const TestSuiteArguments 
             }
 
             // SSBO -> Image
-#ifdef HAVE_GLSYM
-            if (N == 1024)
+            if (context->supports_texture_readback())
             {
-                enqueue_test(context, tests, args, N, N / 2, ComplexToComplex, Forward, SSBO, Image, options, cache);
-                enqueue_test(context, tests, args, N, N / 2, ComplexToComplexDual, Forward, SSBO, Image, options, cache);
-                enqueue_test(context, tests, args, 2 * N, N, RealToComplex, Forward, SSBO, Image, options, cache);
-                enqueue_test(context, tests, args, N, N / 2, ComplexToComplex, Inverse, SSBO, Image, options, cache);
-                enqueue_test(context, tests, args, N, N, ComplexToComplexDual, Inverse, SSBO, Image, options, cache);
-                enqueue_test(context, tests, args, 2 * N, N, ComplexToReal, Inverse, SSBO, Image, options, cache);
-                enqueue_test(context, tests, args, N, N, ComplexToComplex, InverseConvolve, SSBO, Image, options, cache);
-                enqueue_test(context, tests, args, N, N, ComplexToComplexDual, InverseConvolve, SSBO, Image, options, cache);
-                enqueue_test(context, tests, args, 2 * N, N, ComplexToReal, InverseConvolve, SSBO, Image, options, cache);
-
-                if (!big_workgroup)
+                if (N == 1024)
                 {
-                    enqueue_test(context, tests, args, N, 1, ComplexToComplex, Forward, SSBO, Image, options, cache);
-                    enqueue_test(context, tests, args, N, 1, ComplexToComplexDual, Forward, SSBO, Image, options, cache);
-                    enqueue_test(context, tests, args, N, 1, ComplexToReal, Inverse, SSBO, Image, options, cache);
-                    enqueue_test(context, tests, args, N, 1, RealToComplex, Forward, SSBO, Image, options, cache);
+                    enqueue_test(context, tests, args, N, N / 2, ComplexToComplex, Forward, SSBO, Image, options, cache);
+                    enqueue_test(context, tests, args, N, N / 2, ComplexToComplexDual, Forward, SSBO, Image, options, cache);
+                    enqueue_test(context, tests, args, 2 * N, N, RealToComplex, Forward, SSBO, Image, options, cache);
+                    enqueue_test(context, tests, args, N, N / 2, ComplexToComplex, Inverse, SSBO, Image, options, cache);
+                    enqueue_test(context, tests, args, N, N, ComplexToComplexDual, Inverse, SSBO, Image, options, cache);
+                    enqueue_test(context, tests, args, 2 * N, N, ComplexToReal, Inverse, SSBO, Image, options, cache);
+                    enqueue_test(context, tests, args, N, N, ComplexToComplex, InverseConvolve, SSBO, Image, options, cache);
+                    enqueue_test(context, tests, args, N, N, ComplexToComplexDual, InverseConvolve, SSBO, Image, options, cache);
+                    enqueue_test(context, tests, args, 2 * N, N, ComplexToReal, InverseConvolve, SSBO, Image, options, cache);
+
+                    if (!big_workgroup)
+                    {
+                        enqueue_test(context, tests, args, N, 1, ComplexToComplex, Forward, SSBO, Image, options, cache);
+                        enqueue_test(context, tests, args, N, 1, ComplexToComplexDual, Forward, SSBO, Image, options, cache);
+                        enqueue_test(context, tests, args, N, 1, ComplexToReal, Inverse, SSBO, Image, options, cache);
+                        enqueue_test(context, tests, args, N, 1, RealToComplex, Forward, SSBO, Image, options, cache);
+                    }
                 }
             }
-#endif
         }
     }
 

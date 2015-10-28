@@ -53,6 +53,8 @@ namespace GLFFT
             friend class GLCommandBuffer;
             ~GLTexture();
 
+            GLuint get() const { return name; }
+
         private:
             GLTexture(const void *initial_data,
                     unsigned width, unsigned height, unsigned levels,
@@ -68,6 +70,8 @@ namespace GLFFT
             friend class GLCommandBuffer;
             ~GLSampler();
 
+            GLuint get() const { return name; }
+
         private:
             GLSampler(GLuint name);
             GLuint name;
@@ -80,6 +84,8 @@ namespace GLFFT
             friend class GLCommandBuffer;
             ~GLBuffer();
 
+            GLuint get() const { return name; }
+
         private:
             GLuint name;
             GLBuffer(const void *initial_data, size_t size, AccessMode access);
@@ -91,6 +97,8 @@ namespace GLFFT
             friend class GLContext;
             friend class GLCommandBuffer;
             ~GLProgram();
+
+            GLuint get() const { return name; }
 
         private:
             GLProgram(GLuint name);
@@ -143,9 +151,89 @@ namespace GLFFT
             const void* map(Buffer *buffer, size_t offset, size_t size) override;
             void unmap(Buffer *buffer) override;
 
+            // Not supported in GLES, so override when creating platform-specific context.
+            bool supports_texture_readback() override { return false; }
+            void read_texture(void*, Texture*, Format) override {}
+
         private:
             static GLCommandBuffer static_command_buffer;
     };
+
+    static inline GLenum convert(WrapMode mode)
+    {
+        switch (mode)
+        {
+            case WrapClamp: return GL_CLAMP_TO_EDGE;
+            case WrapRepeat: return GL_REPEAT;
+        }
+        return 0;
+    }
+
+    static inline GLenum convert(Filter filter)
+    {
+        switch (filter)
+        {
+            case FilterLinear: return GL_LINEAR;
+            case FilterNearest: return GL_NEAREST;
+        }
+        return 0;
+    }
+
+    static inline GLenum convert(AccessMode mode)
+    {
+        switch (mode)
+        {
+            case AccessStreamCopy: return GL_STREAM_COPY;
+            case AccessStaticCopy: return GL_STATIC_COPY;
+            case AccessStreamRead: return GL_STREAM_READ;
+        }
+        return 0;
+    }
+
+    static inline GLenum convert(Format format)
+    {
+        switch (format)
+        {
+            case FormatR16G16B16A16Float: return GL_RGBA16F;
+            case FormatR32G32B32A32Float: return GL_RGBA32F;
+            case FormatR32Float: return GL_R32F;
+            case FormatR16G16Float: return GL_RG16F;
+            case FormatR32G32Float: return GL_RG32F;
+            case FormatR32Uint: return GL_R32UI;
+            case FormatUnknown: return 0;
+        }
+        return 0;
+    }
+
+    static inline GLenum convert_format(Format format)
+    {
+        switch (format)
+        {
+            case FormatR16G16Float: return GL_RG;
+            case FormatR32G32Float: return GL_RG;
+            case FormatR16G16B16A16Float: return GL_RGBA;
+            case FormatR32G32B32A32Float: return GL_RGBA;
+            case FormatR32Float: return GL_RED;
+            case FormatR32Uint: return GL_RED_INTEGER;
+            case FormatUnknown: return 0;
+        }
+        return 0;
+    }
+
+    static inline GLenum convert_type(Format format)
+    {
+        switch (format)
+        {
+            case FormatR16G16Float: return GL_HALF_FLOAT;
+            case FormatR16G16B16A16Float: return GL_HALF_FLOAT;
+            case FormatR32Float: return GL_FLOAT;
+            case FormatR32G32Float: return GL_FLOAT;
+            case FormatR32G32B32A32Float: return GL_FLOAT;
+            case FormatR32Uint: return GL_UNSIGNED_INT;
+            case FormatUnknown: return 0;
+        }
+        return 0;
+    }
 }
 
 #endif

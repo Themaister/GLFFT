@@ -103,6 +103,9 @@ namespace GLFFT
             virtual const void* map(Buffer *buffer, size_t offset, size_t size) = 0;
             virtual void unmap(Buffer *buffer) = 0;
 
+            virtual bool supports_texture_readback() = 0;
+            virtual void read_texture(void *buffer, Texture *texture, Format format) = 0;
+
         protected:
             Context() = default;
     };

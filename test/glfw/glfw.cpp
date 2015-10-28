@@ -41,6 +41,14 @@ struct GLFWContext : GLContext
         }
     }
     GLFWwindow *window = nullptr;
+
+    bool supports_texture_readback() override { return true; }
+    void read_texture(void *buffer, Texture *texture, Format format) override
+    {
+        glBindTexture(GL_TEXTURE_2D, static_cast<GLTexture*>(texture)->get());
+        glGetTexImage(GL_TEXTURE_2D, 0, convert_format(format), convert_type(format), buffer);
+        glBindTexture(GL_TEXTURE_2D, 0);
+    }
 };
 
 unique_ptr<Context> GLFFT::create_cli_context()
