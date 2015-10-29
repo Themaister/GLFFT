@@ -8,6 +8,7 @@
 *~
 *.txt
 /libs
+*.a
 /obj
 android/.gitignore
 android/app/.gitignore
