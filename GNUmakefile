@@ -28,6 +28,9 @@ ifeq ($(BACKEND), glfw)
 		LDFLAGS += -lmufft $(shell pkg-config glfw3 --libs) -lGL
 	endif
 	GLSYM := test/glfw/glsym/rglgen.c test/glfw/glsym/glsym_gl.c
+
+	CXX = clang++
+	CC = clang
 endif
 
 ifeq ($(PLATFORM),win)
