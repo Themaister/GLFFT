@@ -20,7 +20,15 @@
 precision mediump float;
 #endif
 
-layout(std140, binding = 0) uniform UBO
+#define BINDING_SSBO_IN 0
+#define BINDING_SSBO_OUT 1
+#define BINDING_SSBO_AUX 2
+#define BINDING_UBO 3
+#define BINDING_TEXTURE0 4
+#define BINDING_TEXTURE1 5
+#define BINDING_IMAGE 6
+
+layout(std140, binding = BINDING_UBO) uniform UBO
 {
     uvec4 p_stride_padding;
     vec4 texture_offset_scale;
@@ -253,9 +261,9 @@ precision highp sampler2D;
 #define uTexelOffset constant_data.texture_offset_scale.xy
 #define uTexelScale constant_data.texture_offset_scale.zw
 
-layout(binding = 0) uniform sampler2D uTexture;
+layout(binding = BINDING_TEXTURE0) uniform sampler2D uTexture;
 #ifdef FFT_CONVOLVE
-layout(binding = 1) uniform sampler2D uTexture2;
+layout(binding = BINDING_TEXTURE1) uniform sampler2D uTexture2;
 #endif
 
 cfloat load_texture(sampler2D sampler, uvec2 coord)
@@ -333,13 +341,13 @@ cfloat load_global(uint offset)
 
 #else
 
-layout(std430, binding = 0) readonly buffer Block
+layout(std430, binding = BINDING_SSBO_IN) readonly buffer Block
 {
     cfloat_buffer_in data[];
 } fft_in;
 
 #ifdef FFT_CONVOLVE
-layout(std430, binding = 2) readonly buffer Block2
+layout(std430, binding = BINDING_SSBO_AUX) readonly buffer Block2
 {
     cfloat_buffer_in data[];
 } fft_in2;
@@ -373,7 +381,7 @@ cfloat load_global(uint offset)
 #endif
 
 #ifndef FFT_OUTPUT_IMAGE
-layout(std430, binding = 1) writeonly buffer BlockOut
+layout(std430, binding = BINDING_SSBO_OUT) writeonly buffer BlockOut
 {
     cfloat_buffer_out data[];
 } fft_out;
@@ -417,12 +425,12 @@ precision highp uimage2D;
 // Should be possible to add options for this to at least choose between FP16/FP32 output,
 // and maybe rgba8_unorm for FFT_DUAL case.
 #if defined(FFT_DUAL)
-layout(rgba16f, binding = 0) uniform writeonly image2D uImage;
+layout(rgba16f, binding = BINDING_IMAGE) uniform writeonly image2D uImage;
 #elif defined(FFT_OUTPUT_REAL)
-layout(r32f, binding = 0) uniform writeonly image2D uImage;
+layout(r32f, binding = BINDING_IMAGE) uniform writeonly image2D uImage;
 #else
 // GLES 3.1 doesn't support rg16f layout for some reason, so work around it ...
-layout(r32ui, binding = 0) uniform writeonly uimage2D uImage;
+layout(r32ui, binding = BINDING_IMAGE) uniform writeonly uimage2D uImage;
 #endif
 
 void store(ivec2 coord, vec4 value)

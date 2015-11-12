@@ -41,6 +41,17 @@
 using namespace std;
 using namespace GLFFT;
 
+enum Bindings
+{
+    BindingSSBOIn = 0,
+    BindingSSBOOut = 1,
+    BindingSSBOAux = 2,
+    BindingUBO = 3,
+    BindingTexture0 = 4,
+    BindingTexture1 = 5,
+    BindingImage = 6
+};
+
 struct WorkGroupSize
 {
     unsigned x, y, z;
@@ -998,19 +1009,19 @@ void FFT::process(CommandBuffer *cmd, Resource *output, Resource *input, Resourc
     {
         if (passes.front().parameters.input_target != SSBO)
         {
-            cmd->bind_texture(1, static_cast<Texture*>(input_aux));
-            cmd->bind_sampler(1, texture.samplers[1]);
+            cmd->bind_texture(BindingTexture1, static_cast<Texture*>(input_aux));
+            cmd->bind_sampler(BindingTexture1, texture.samplers[1]);
         }
         else
         {
             if (ssbo.input_aux.size != 0)
             {
-                cmd->bind_storage_buffer_range(2,
+                cmd->bind_storage_buffer_range(BindingSSBOAux,
                         ssbo.input_aux.offset, ssbo.input_aux.size, static_cast<Buffer*>(input_aux));
             }
             else
             {
-                cmd->bind_storage_buffer(2, static_cast<Buffer*>(input_aux));
+                cmd->bind_storage_buffer(BindingSSBOAux, static_cast<Buffer*>(input_aux));
             }
         }
     }
@@ -1048,8 +1059,8 @@ void FFT::process(CommandBuffer *cmd, Resource *output, Resource *input, Resourc
 
         if (pass.parameters.input_target != SSBO)
         {
-            cmd->bind_texture(0, static_cast<Texture*>(buffers[0]));
-            cmd->bind_sampler(0, texture.samplers[0]);
+            cmd->bind_texture(BindingTexture0, static_cast<Texture*>(buffers[0]));
+            cmd->bind_sampler(BindingTexture0, texture.samplers[0]);
 
             // If one compute thread reads multiple texels in X dimension, scale this accordingly.
             float scale_x = texture.scale_x * pass.uv_scale_x;
@@ -1063,17 +1074,17 @@ void FFT::process(CommandBuffer *cmd, Resource *output, Resource *input, Resourc
         {
             if (buffers[0] == input && ssbo.input.size != 0)
             {
-                cmd->bind_storage_buffer_range(0,
+                cmd->bind_storage_buffer_range(BindingSSBOIn,
                         ssbo.input.offset, ssbo.input.size, static_cast<Buffer*>(buffers[0]));
             }
             else if (buffers[0] == output && ssbo.output.size != 0)
             {
-                cmd->bind_storage_buffer_range(0,
+                cmd->bind_storage_buffer_range(BindingSSBOIn,
                         ssbo.output.offset, ssbo.output.size, static_cast<Buffer*>(buffers[0]));
             }
             else
             {
-                cmd->bind_storage_buffer(0, static_cast<Buffer*>(buffers[0]));
+                cmd->bind_storage_buffer(BindingSSBOIn, static_cast<Buffer*>(buffers[0]));
             }
         }
 
@@ -1105,22 +1116,22 @@ void FFT::process(CommandBuffer *cmd, Resource *output, Resource *input, Resourc
                         break;
                 }
             }
-            cmd->bind_storage_texture(0, static_cast<Texture*>(output), format);
+            cmd->bind_storage_texture(BindingImage, static_cast<Texture*>(output), format);
         }
         else
         {
             if (buffers[1] == output && ssbo.output.size != 0)
             {
-                cmd->bind_storage_buffer_range(1,
+                cmd->bind_storage_buffer_range(BindingSSBOOut,
                         ssbo.output.offset, ssbo.output.size, static_cast<Buffer*>(buffers[1]));
             }
             else
             {
-                cmd->bind_storage_buffer(1, static_cast<Buffer*>(buffers[1]));
+                cmd->bind_storage_buffer(BindingSSBOOut, static_cast<Buffer*>(buffers[1]));
             }
         }
 
-        cmd->push_constant_data(0, &constant_data, sizeof(constant_data));
+        cmd->push_constant_data(BindingUBO, &constant_data, sizeof(constant_data));
         cmd->dispatch(pass.workgroups_x, pass.workgroups_y, 1);
 
         // For last pass, we don't know how our resource will be used afterwards,
