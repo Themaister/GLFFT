@@ -87,96 +87,102 @@ When compiling, C++11 must be enabled, and `glfft_api_headers.hpp` must be found
 
 ### Do a 1024x256 Complex-To-Complex FFT.
 
-    #include "glfft.hpp"
-    #include "glfft_gl_interface.hpp"
-    #include <memory>
+```c++
+#include "glfft.hpp"
+#include "glfft_gl_interface.hpp"
+#include <memory>
 
-    using namespace GLFFT;
-    using namespace std;
+using namespace GLFFT;
+using namespace std;
 
-    FFTOptions options; // Default initializes to something conservative in terms of performance.
-    options.type.fp16 = true; // Use mediump float (if GLES) in shaders.
-    options.type.input_fp16 = false; // Use FP32 input.
-    options.type.output_fp16 = true; // Use FP16 output.
-    options.type.normalize = true; // Normalized FFT.
+FFTOptions options; // Default initializes to something conservative in terms of performance.
+options.type.fp16 = true; // Use mediump float (if GLES) in shaders.
+options.type.input_fp16 = false; // Use FP32 input.
+options.type.output_fp16 = true; // Use FP16 output.
+options.type.normalize = true; // Normalized FFT.
 
-    GLContext context;
+GLContext context;
 
-    FFT fft(&context, 1024, 256, ComplexToComplex, Inverse, SSBO, SSBO, make_shared<ProgramCache>(), options);
+FFT fft(&context, 1024, 256, ComplexToComplex, Inverse, SSBO, SSBO, make_shared<ProgramCache>(), options);
 
-    GLuint output_ssbo, input_ssbo;
-    // Create GL_SHADER_STORAGE_BUFFERs and put some data in them.
+GLuint output_ssbo, input_ssbo;
+// Create GL_SHADER_STORAGE_BUFFERs and put some data in them.
 
-    // Adapt raw GL types to types which GLContext uses internally.
-    GLBuffer adaptor_output(output_ssbo);
-    GLBuffer adaptor_input(input_ssbo);
+// Adapt raw GL types to types which GLContext uses internally.
+GLBuffer adaptor_output(output_ssbo);
+GLBuffer adaptor_input(input_ssbo);
 
-    // Do the FFT
-    CommandBuffer *cmd = context.request_command_buffer();
-    fft.process(cmd, &adaptor_output, &adaptor_input);
-    context.submit_command_buffer(cmd);
+// Do the FFT
+CommandBuffer *cmd = context.request_command_buffer();
+fft.process(cmd, &adaptor_output, &adaptor_input);
+context.submit_command_buffer(cmd);
 
-    glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+```
 
 ### Do a 1024x256 Complex-To-Complex FFT more optimally using wisdom.
 
-    #include "glfft.hpp"
-    #include "glfft_wisdom.hpp"
-    #include "glfft_gl_interface.hpp"
-    #include <memory>
+```c++
+#include "glfft.hpp"
+#include "glfft_wisdom.hpp"
+#include "glfft_gl_interface.hpp"
+#include <memory>
 
-    using namespace GLFFT;
-    using namespace std;
+using namespace GLFFT;
+using namespace std;
 
-    FFTOptions options; // Default initializes to something conservative in terms of performance.
-    options.type.fp16 = true; // Use mediump float (if GLES) in shaders.
-    options.type.input_fp16 = false; // Use FP32 input.
-    options.type.output_fp16 = true; // Use FP16 output.
-    options.type.normalize = true; // Normalized FFT.
+FFTOptions options; // Default initializes to something conservative in terms of performance.
+options.type.fp16 = true; // Use mediump float (if GLES) in shaders.
+options.type.input_fp16 = false; // Use FP32 input.
+options.type.output_fp16 = true; // Use FP16 output.
+options.type.normalize = true; // Normalized FFT.
 
-    GLContext context;
+GLContext context;
 
-    FFTWisdom wisdom;
-    // Use some static wisdom to make the learning step faster.
-    // Avoids searching for options which are known to be bogus for a particular vendor.
-    wisdom.set_static_wisdom(FFTWisdom::get_static_wisdom_from_renderer(reinterpret_cast<const char*>(glGetString(GL_RENDERER))));
-    // Learn how to do 1024x256 much faster!
-    wisdom.learn_optimal_options_exhaustive(&context, 1024, 256, ComplexToComplex, SSBO, SSBO, options.type);
+FFTWisdom wisdom;
+// Use some static wisdom to make the learning step faster.
+// Avoids searching for options which are known to be bogus for a particular vendor.
+wisdom.set_static_wisdom(FFTWisdom::get_static_wisdom_from_renderer(reinterpret_cast<const char*>(glGetString(GL_RENDERER))));
+// Learn how to do 1024x256 much faster!
+wisdom.learn_optimal_options_exhaustive(&context, 1024, 256, ComplexToComplex, SSBO, SSBO, options.type);
 
-    GLContext context;
+GLContext context;
 
-    FFT fft(&context, 1024, 256, ComplexToComplex, Inverse, SSBO, SSBO, make_shared<ProgramCache>(), options);
+FFT fft(&context, 1024, 256, ComplexToComplex, Inverse, SSBO, SSBO, make_shared<ProgramCache>(), options);
 
-    GLuint output_ssbo, input_ssbo;
-    // Create GL_SHADER_STORAGE_BUFFERs and put some data in them.
+GLuint output_ssbo, input_ssbo;
+// Create GL_SHADER_STORAGE_BUFFERs and put some data in them.
 
-    // Adapt raw GL types to types which GLContext uses internally.
-    GLBuffer adaptor_output(output_ssbo);
-    GLBuffer adaptor_input(input_ssbo);
+// Adapt raw GL types to types which GLContext uses internally.
+GLBuffer adaptor_output(output_ssbo);
+GLBuffer adaptor_input(input_ssbo);
 
-    // Do the FFT
-    CommandBuffer *cmd = context.request_command_buffer();
-    fft.process(cmd, &adaptor_output, &adaptor_input);
-    context.submit_command_buffer(cmd);
+// Do the FFT
+CommandBuffer *cmd = context.request_command_buffer();
+fft.process(cmd, &adaptor_output, &adaptor_input);
+context.submit_command_buffer(cmd);
 
-    glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+```
 
 ### Serializing wisdom to a string
 
-    GLContext context;
+```c++
+GLContext context;
 
-    FFTWisdom wisdom;
-    // Use some static wisdom to make the learning step faster.
-    // Avoids searching for options which are known to be bogus for a particular vendor.
-    wisdom.set_static_wisdom(FFTWisdom::get_static_wisdom_from_renderer(reinterpret_cast<const char*>(glGetString(GL_RENDERER))));
-    // Learn how to do 1024x256 much faster!
-    wisdom.learn_optimal_options_exhaustive(&context, 1024, 256, ComplexToComplex, SSBO, SSBO, options.type);
+FFTWisdom wisdom;
+// Use some static wisdom to make the learning step faster.
+// Avoids searching for options which are known to be bogus for a particular vendor.
+wisdom.set_static_wisdom(FFTWisdom::get_static_wisdom_from_renderer(reinterpret_cast<const char*>(glGetString(GL_RENDERER))));
+// Learn how to do 1024x256 much faster!
+wisdom.learn_optimal_options_exhaustive(&context, 1024, 256, ComplexToComplex, SSBO, SSBO, options.type);
 
-    // Serialize to string.
-    string wisdom_json = wisdom.archive();
+// Serialize to string.
+string wisdom_json = wisdom.archive();
 
-    // Unserialize wisdom.
-    wisdom.extract(wisdom_json.c_str());
+// Unserialize wisdom.
+wisdom.extract(wisdom_json.c_str());
+```
 
 ### Documentation
 
