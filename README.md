@@ -29,11 +29,10 @@ graphics use cases.
 ### Platform support
 
 Desktop Linux and Windows have been tested and are supported. Supports both OpenGL 4.3 core and OpenGL ES 3.1.
-Should work on Android devices with GLES 3.1, but this has not been tested yet.
 
 The GLSL code has been tested and verified on:
 
- - ARM Mali T-760 (Linux)
+ - ARM Mali T-760 (Linux, Android 5.x)
  - nVidia GTX 760 (Linux)
  - Intel HD 4400 (Windows 7 x64)
 
@@ -56,11 +55,15 @@ GLFFT is a performance oriented FFT library, and aims to reach optimal efficienc
 
 ## Integrating GLFFT into a code base
 
-Due to the nature of OpenGL, it is not always feasible to build GLFFT as a standalone library, as applications
+GLFFT is an OpenGL oriented implementation, but all API specifics of GLFFT have been abstracted away to
+make it suitable for integration into engines which might have abstracted interfaces to the underlying graphics APIs.
+It is possible to implement GLFFT without OpenGL, as long as GLSL is supported as a shading language,
+which is assumed to be feasible once SPIR-V becomes mainstream.
+The abstracted interface is designed to match the spirit of next-generation APIs like Vulkan and D3D12.
+
+As using GLFFT in a GL context is by far the most common use case, a default, ready-to-go OpenGL interface
+is supplied in the API. Due to the nature of OpenGL, it is not always feasible to build GLFFT as a standalone library, as applications
 might have their own ways of getting to OpenGL symbols and headers which is not easy for GLFFT to work with.
-
-Comprehensive virtual interfaces to abstract all dependencies on OpenGL would have been possible, but for ease and simplicity, this was avoided.
-
 Instead, the GLFFT implementation will include a user-supplied header, `glfft_api_headers.hpp` which is responsible for including
 the appropriate OpenGL or OpenGL ES 3.1 headers (or special headers like GLEW) the calling application uses,
 as well as defining various constants, such as the GLSL language strings to use.
@@ -85,7 +88,7 @@ When compiling, C++11 must be enabled, and `glfft_api_headers.hpp` must be found
 ### Do a 1024x256 Complex-To-Complex FFT.
 
     #include "glfft.hpp"
-    #include "glfft_api_headers.hpp"
+    #include "glfft_gl_interface.hpp"
     #include <memory>
 
     using namespace GLFFT;
@@ -97,18 +100,29 @@ When compiling, C++11 must be enabled, and `glfft_api_headers.hpp` must be found
     options.type.output_fp16 = true; // Use FP16 output.
     options.type.normalize = true; // Normalized FFT.
 
-    FFT fft(1024, 256, ComplexToComplex, Inverse, SSBO, SSBO, make_shared<ProgramCache>(), options);
+    GLContext context;
+
+    FFT fft(&context, 1024, 256, ComplexToComplex, Inverse, SSBO, SSBO, make_shared<ProgramCache>(), options);
 
     GLuint output_ssbo, input_ssbo;
     // Create GL_SHADER_STORAGE_BUFFERs and put some data in them.
-    fft.process(output_ssbo, input_ssbo);
-    glMemoryBarrier(GL_ALL_BARRIER_BITS);
+
+    // Adapt raw GL types to types which GLContext uses internally.
+    GLBuffer adaptor_output(output_ssbo);
+    GLBuffer adaptor_input(input_ssbo);
+
+    // Do the FFT
+    CommandBuffer *cmd = context.request_command_buffer();
+    fft.process(cmd, &adaptor_output, &adaptor_input);
+    context.submit_command_buffer(cmd);
+
+    glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
 
 ### Do a 1024x256 Complex-To-Complex FFT more optimally using wisdom.
 
     #include "glfft.hpp"
     #include "glfft_wisdom.hpp"
-    #include "glfft_api_headers.hpp"
+    #include "glfft_gl_interface.hpp"
     #include <memory>
 
     using namespace GLFFT;
@@ -120,29 +134,43 @@ When compiling, C++11 must be enabled, and `glfft_api_headers.hpp` must be found
     options.type.output_fp16 = true; // Use FP16 output.
     options.type.normalize = true; // Normalized FFT.
 
+    GLContext context;
+
     FFTWisdom wisdom;
     // Use some static wisdom to make the learning step faster.
     // Avoids searching for options which are known to be bogus for a particular vendor.
     wisdom.set_static_wisdom(FFTWisdom::get_static_wisdom_from_renderer(reinterpret_cast<const char*>(glGetString(GL_RENDERER))));
     // Learn how to do 1024x256 much faster!
-    wisdom.learn_optimal_options_exhaustive(1024, 256, ComplexToComplex, SSBO, SSBO, options.type);
+    wisdom.learn_optimal_options_exhaustive(&context, 1024, 256, ComplexToComplex, SSBO, SSBO, options.type);
 
-    // Create a FFT, with added wisdom.
-    FFT fft(1024, 256, ComplexToComplex, Inverse, SSBO, SSBO, make_shared<ProgramCache>(), options, wisdom);
+    GLContext context;
+
+    FFT fft(&context, 1024, 256, ComplexToComplex, Inverse, SSBO, SSBO, make_shared<ProgramCache>(), options);
 
     GLuint output_ssbo, input_ssbo;
     // Create GL_SHADER_STORAGE_BUFFERs and put some data in them.
-    fft.process(output_ssbo, input_ssbo);
-    glMemoryBarrier(GL_ALL_BARRIER_BITS);
+
+    // Adapt raw GL types to types which GLContext uses internally.
+    GLBuffer adaptor_output(output_ssbo);
+    GLBuffer adaptor_input(input_ssbo);
+
+    // Do the FFT
+    CommandBuffer *cmd = context.request_command_buffer();
+    fft.process(cmd, &adaptor_output, &adaptor_input);
+    context.submit_command_buffer(cmd);
+
+    glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
 
 ### Serializing wisdom to a string
+
+    GLContext context;
 
     FFTWisdom wisdom;
     // Use some static wisdom to make the learning step faster.
     // Avoids searching for options which are known to be bogus for a particular vendor.
     wisdom.set_static_wisdom(FFTWisdom::get_static_wisdom_from_renderer(reinterpret_cast<const char*>(glGetString(GL_RENDERER))));
     // Learn how to do 1024x256 much faster!
-    wisdom.learn_optimal_options_exhaustive(1024, 256, ComplexToComplex, SSBO, SSBO, options.type);
+    wisdom.learn_optimal_options_exhaustive(&context, 1024, 256, ComplexToComplex, SSBO, SSBO, options.type);
 
     // Serialize to string.
     string wisdom_json = wisdom.archive();

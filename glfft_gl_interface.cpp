@@ -233,10 +233,16 @@ void GLContext::unmap(Buffer *buffer)
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 }
 
+void GLContext::teardown()
+{
+    if (initialized_ubos)
+        glDeleteBuffers(MaxBuffersRing, ubos);
+    initialized_ubos = false;
+}
+
 GLContext::~GLContext()
 {
-    // The backing context has already died, so no need to free GL resources manually.
-    //glDeleteBuffers(MaxBuffersRing, ubos);
+    teardown();
 }
 
 GLTexture::GLTexture(const void *initial_data,
@@ -262,7 +268,8 @@ GLTexture::GLTexture(const void *initial_data,
 
 GLTexture::~GLTexture()
 {
-    glDeleteTextures(1, &name);
+    if (owned)
+        glDeleteTextures(1, &name);
 }
 
 GLBuffer::GLBuffer(const void *initial_data, size_t size, AccessMode access)
@@ -275,7 +282,8 @@ GLBuffer::GLBuffer(const void *initial_data, size_t size, AccessMode access)
 
 GLBuffer::~GLBuffer()
 {
-    glDeleteBuffers(1, &name);
+    if (owned)
+        glDeleteBuffers(1, &name);
 }
 
 GLProgram::GLProgram(GLuint name)
@@ -289,10 +297,6 @@ GLProgram::~GLProgram()
         glDeleteProgram(name);
     }
 }
-
-GLSampler::GLSampler(GLuint name)
-    : name(name)
-{}
 
 GLSampler::~GLSampler()
 {

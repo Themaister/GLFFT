@@ -53,6 +53,7 @@ namespace GLFFT
             friend class GLCommandBuffer;
             ~GLTexture();
 
+            GLTexture(GLuint obj) : name(obj), owned(false) {}
             GLuint get() const { return name; }
 
         private:
@@ -60,8 +61,10 @@ namespace GLFFT
                     unsigned width, unsigned height,
                     Format format);
             GLuint name;
+            bool owned = true;
     };
 
+    // Not really used by test and bench code, but can be useful for API users.
     class GLSampler : public Sampler
     {
         public:
@@ -69,10 +72,10 @@ namespace GLFFT
             friend class GLCommandBuffer;
             ~GLSampler();
 
+            GLSampler(GLuint obj) : name(obj) {}
             GLuint get() const { return name; }
 
         private:
-            GLSampler(GLuint name);
             GLuint name;
     };
 
@@ -83,11 +86,13 @@ namespace GLFFT
             friend class GLCommandBuffer;
             ~GLBuffer();
 
+            GLBuffer(GLuint obj) : name(obj), owned(false) {}
             GLuint get() const { return name; }
 
         private:
             GLuint name;
             GLBuffer(const void *initial_data, size_t size, AccessMode access);
+            bool owned = true;
     };
 
     class GLProgram : public Program
@@ -164,6 +169,9 @@ namespace GLFFT
             // Not supported in GLES, so override when creating platform-specific context.
             bool supports_texture_readback() override { return false; }
             void read_texture(void*, Texture*, Format) override {}
+
+        protected:
+            void teardown();
 
         private:
             static GLCommandBuffer static_command_buffer;

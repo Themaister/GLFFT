@@ -29,6 +29,11 @@ namespace GLFFT
     {
         public:
             virtual ~Resource() = default;
+
+            // Non-movable, non-copyable to make things simpler.
+            Resource(Resource&&) = delete;
+            void operator=(const Resource&) = delete;
+
         protected:
             Resource() = default;
     };

@@ -36,6 +36,7 @@ struct GLFWContext : GLContext
     {
         if (window)
         {
+            teardown();
             glfwDestroyWindow(window);
             glfwTerminate();
         }

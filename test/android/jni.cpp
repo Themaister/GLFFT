@@ -43,6 +43,8 @@ struct AndroidEGLContext : GLContext
     {
         if (dpy)
         {
+            teardown();
+
             eglMakeCurrent(dpy, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
             if (ctx)
                 eglDestroyContext(dpy, ctx);
