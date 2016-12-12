@@ -23,6 +23,7 @@
 #include <sstream>
 #include <numeric>
 #include <assert.h>
+#include <cmath>
 
 #ifdef GLFFT_CLI_ASYNC
 #include "glfft_cli.hpp"
